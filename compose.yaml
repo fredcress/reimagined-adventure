@@ -1,0 +1,12 @@
+# Dockge stack. On the NAS you only need this file plus a .env next to it
+# (copy .env.example). The image is built by GitHub Actions on every push.
+services:
+  kitchen-monitor:
+    image: ghcr.io/fredcress/reimagined-adventure:latest
+    # Or build on the NAS straight from GitHub instead of pulling:
+    # build: https://github.com/fredcress/reimagined-adventure.git#main
+    container_name: kitchen-monitor
+    restart: unless-stopped
+    env_file: .env
+    ports:
+      - "8085:8080"

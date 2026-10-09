@@ -1,0 +1,164 @@
+# Kitchen Monitor
+
+A touch dashboard for a 10" 1024×600 screen in the kitchen showing Octopus Agile
+prices and usage, Jellyfin, and Seerr requests.
+
+```
+[Octopus API]   [Jellyfin]   [Seerr]
+        \            |          /
+   kitchen-monitor container (TrueNAS / Dockge)
+     - polls each source, caches, does the maths
+     - serves the page + JSON
+                     |
+     Raspberry Pi: Chromium kiosk, stateless
+```
+
+The Pi holds no config, keys or state. If the SD card dies, re-flash it and run
+one script.
+
+## What's on screen
+
+**Home**: current/next Agile price, the cheapest 1h and 3h windows,
+**appliance advice** ("Dishwasher eco in 6h": the delay to set for the
+cheapest run), a price chart to the end of published prices, yesterday's usage and cost, what's
+playing on Jellyfin, recently added items, and Seerr request counts.
+
+Tap a panel to drill in:
+
+| Panel | Tabs |
+|---|---|
+| Energy | Today / Tomorrow (every half hour, tap a bar), Usage (31 days, tap a day for its half-hourly kWh coloured by price) |
+| Jellyfin | Now playing (live), Recently added / Movies / Episodes (poster grid, tap for details) |
+| Requests | Pending / Processing / Available / All (tap for details) |
+| Timers (top bar) | Presets 1-45 min, custom length, optional label (Pasta, Rice…), +1/+5 min, cancel |
+
+**Kitchen timers** live on the server, so they survive a page reload and show
+on any screen that has the page open. Running timers count down in the top bar
+on every view. When one finishes, the whole screen flashes with a beep, even in
+night mode, and offers +1 min, +5 min or Dismiss. Timers are kept in memory, so
+a container restart clears them. For sound, the Pi needs an audio output: most
+10" HDMI screens have small speakers, or use a USB speaker.
+
+**Appliance advice** checks start times in steps of the delay-start button
+(`APPLIANCE_DELAY_STEP`, default 1 h) and picks the start with the lowest
+average price over the whole cycle. It only uses published prices. Between noon
+and ~4pm tomorrow's prices aren't out yet, so the advice is flagged "may change
+at 4pm".
+
+Detail views go back to Home after 90 s without a touch. Between `NIGHT_START`
+and `NIGHT_END` the screen shows a dim clock and price. Tap it to wake.
+
+Notes:
+- Octopus consumption is **T+1**: yesterday's readings usually arrive during
+  the day. A day is marked "partial" until all 48 half-hours are in.
+- Tomorrow's Agile prices are usually published around **4pm**.
+- The detail views are read-only. Nothing on the kitchen screen can approve
+  or delete anything.
+
+## Run it
+
+### 1. Image: built by GitHub
+
+Every push to `main` runs the tests and publishes
+`ghcr.io/fredcress/reimagined-adventure:latest` (`.github/workflows/docker.yml`).
+The NAS never builds anything.
+
+After the first run, open the package on GitHub (your profile → Packages →
+reimagined-adventure → Package settings) and make sure it's **Public**, so the
+NAS can pull it without logging in.
+
+### 2. Deploy on TrueNAS with Dockge
+
+1. In Dockge: **+ Compose** → name it `kitchen-monitor` → paste `compose.yaml`.
+2. In the stack's `.env` box, paste `.env.example` and fill in the keys (see
+   below). Leave `DEMO=1` first to check the screen, then set `DEMO=0`.
+3. **Deploy**. Open `http://<nas>:8085` in a browser sized ~1024×600 to check.
+4. To update after a push: wait for the GitHub Action to go green, then click **Update** in
+   Dockge. The kitchen screen notices the new version and reloads itself.
+
+Port `8085` is set in `compose.yaml`. Change it if it clashes. `compose.dev.yaml`
+builds from a local checkout instead.
+
+### Mealie (recipes)
+
+`extras/mealie/compose.yaml` is a ready Dockge stack for Mealie: paste it as a
+new stack called `mealie`, deploy, and log in at `http://<nas>:9925` with
+`changeme@example.com` / `MyPassword` (change it at once). Once it has some
+recipes and a meal plan, the dashboard can pull "tonight's dinner" and step-by-step
+recipes from Mealie's API. That hasn't been built yet.
+
+### 3. Set up the Pi
+
+Flash **Raspberry Pi OS Lite** (64-bit) with Raspberry Pi Imager, setting up
+Wi-Fi/SSH and a user in the Imager settings. Then:
+
+```sh
+scp pi/setup-kiosk.sh <user>@<pi>:
+ssh <user>@<pi> 'sudo ./setup-kiosk.sh http://<nas-ip>:8085 && sudo reboot'
+```
+
+The script installs `cage` (a minimal Wayland kiosk compositor) and Chromium,
+and adds a systemd service that waits for the server and then opens the page
+fullscreen. Once you're happy, enable the read-only overlay filesystem as the
+script prints.
+
+Any Pi 3B+/4/5 is fine. A Zero 2 W works but is sluggish.
+
+## Configuration (`.env`)
+
+| Variable | |
+|---|---|
+| `DEMO` | `1` = fake data for everything |
+| `OCTOPUS_API_KEY`, `OCTOPUS_ACCOUNT` | From the Octopus dashboard → Personal details → API access. The meter, MPAN and tariff are discovered from the account. |
+| `OCTOPUS_MPAN`, `OCTOPUS_SERIAL` | Only if you have several import meters |
+| `JELLYFIN_URL`, `JELLYFIN_API_KEY` | Dashboard → API Keys |
+| `SEERR_URL`, `SEERR_API_KEY` | Settings → General. Works with Jellyseerr/Overseerr too. |
+| `PRICE_CHEAP`, `PRICE_EXPENSIVE` | Colour thresholds in p/kWh (default 15 / 25). Prices ≤ 0 show as "plunge". |
+| `CHEAPEST_WINDOWS` | Window lengths in hours for the home tiles (default `1,3`) |
+| `USAGE_DAYS` | Days in the home usage mini-chart (default 7) |
+| `APPLIANCES` | `"Dishwasher eco=4:30,Dishwasher quick=2:30"`: name=cycle length, optional `@kWh` per cycle to show the saving |
+| `APPLIANCE_DELAY_STEP` | Hours per press of the delay-start button (default 1) |
+| `TIMER_LABELS` | Quick labels on the Timers screen |
+| `NIGHT_START`, `NIGHT_END` | Night clock, `HH:MM`. Leave blank to disable. |
+| `TZ` | Default `Europe/London` |
+
+A service left unconfigured shows "Not configured". The rest still work.
+
+## How it works
+
+`app/main.py` runs background pollers and keeps the last good result. If an API
+is down, the screen keeps showing old data and a ⚠ chip appears in the top bar.
+
+| Data | Refresh |
+|---|---|
+| Agile unit rates + standing charge (31 days back to tomorrow) | 15 min |
+| Consumption (31 days) | 60 min |
+| Jellyfin sessions | 10 s |
+| Jellyfin recently added | 10 min |
+| Seerr counts + latest | 2 min |
+
+Detail views (Jellyfin/Seerr lists, paging) are fetched live when you tap.
+Jellyfin posters are proxied through the server, so the Pi never needs the token.
+Seerr posters come straight from TMDB's image CDN, so the Pi needs internet for those.
+
+The page polls `/api/state` every 10 s. If the server is unreachable it keeps
+the last data on screen and shows "Server offline".
+
+API endpoints: `/api/state`, `/api/energy/prices?day=YYYY-MM-DD`,
+`/api/energy/usage`, `/api/energy/usage/YYYY-MM-DD`,
+`/api/jellyfin/latest?kind=all|movies|episodes&skip=&take=`,
+`/api/seerr/requests?filter=all|pending|approved|processing|available&skip=&take=`,
+`GET/POST /api/timers`, `POST /api/timers/{id}/add`, `DELETE /api/timers/{id}`,
+`/healthz`.
+
+## Development
+
+```sh
+python -m venv .venv && . .venv/bin/activate
+pip install -r requirements.txt pytest
+pytest                                         # tariff maths, incl. clock changes
+DEMO=1 uvicorn app.main:app --reload --port 8080
+```
+
+The frontend is plain HTML/CSS/JS in `static/`, with no build step and no
+external libraries, so it works offline on the Pi.

@@ -1,0 +1,7 @@
+# Local build from this checkout: docker compose -f compose.dev.yaml up --build
+services:
+  kitchen-monitor:
+    build: .
+    env_file: .env
+    ports:
+      - "8085:8080"

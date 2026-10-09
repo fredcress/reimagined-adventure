@@ -1,0 +1,11 @@
+.env
+.git
+tests
+pi
+__pycache__
+.pytest_cache
+.claude
+.github
+extras
+compose*.yaml
+README.md

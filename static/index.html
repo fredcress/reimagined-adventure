@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="en-GB">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+  <title>Kitchen Monitor</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <header class="topbar">
+    <button class="back" id="back" hidden>‹ Home</button>
+    <div class="clock"><span id="time">--:--</span><span id="date"></span></div>
+    <h1 id="view-title"></h1>
+    <div class="timer-chips" id="timer-chips"></div>
+    <div class="status" id="status"></div>
+  </header>
+
+  <!-- Home: overview of every panel; tap a panel to drill in -->
+  <main class="view home" id="view-home">
+    <section class="card energy" data-go="energy">
+      <div class="tiles" id="energy-tiles"></div>
+      <div class="advice" id="energy-advice"></div>
+      <div class="chart-wrap">
+        <div class="chart-head"><span>Agile price, p/kWh</span><span id="energy-readout" class="readout"></span></div>
+        <div class="chart" id="energy-chart"></div>
+      </div>
+      <div class="usage-strip" id="usage-strip"></div>
+    </section>
+
+    <section class="card jellyfin" data-go="jellyfin">
+      <h2>Jellyfin</h2>
+      <div id="jf-now"></div>
+      <ul class="list" id="jf-latest"></ul>
+    </section>
+
+    <section class="card seerr" data-go="seerr">
+      <h2>Requests</h2>
+      <div class="counts" id="seerr-counts"></div>
+      <ul class="list" id="seerr-list"></ul>
+    </section>
+  </main>
+
+  <!-- Detail views: tabs + scrollable content -->
+  <main class="view detail" id="view-detail" hidden>
+    <nav class="tabs" id="tabs"></nav>
+    <div class="detail-body" id="detail-body"></div>
+  </main>
+
+  <!-- Item sheet (overview text for a poster / request) -->
+  <div class="sheet-backdrop" id="sheet" hidden>
+    <div class="sheet" id="sheet-body"></div>
+  </div>
+
+  <!-- Night mode: just the clock and the current price -->
+  <div class="night" id="night" hidden>
+    <div class="night-time" id="night-time"></div>
+    <div class="night-price" id="night-price"></div>
+  </div>
+
+  <!-- Timer alarm: above everything, including night mode -->
+  <div class="alarm" id="alarm" hidden>
+    <div class="alarm-title" id="alarm-title"></div>
+    <div class="alarm-actions">
+      <button class="big-btn" data-alarm="60">+1 min</button>
+      <button class="big-btn" data-alarm="300">+5 min</button>
+      <button class="big-btn primary" data-alarm="dismiss">Dismiss</button>
+    </div>
+  </div>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>
