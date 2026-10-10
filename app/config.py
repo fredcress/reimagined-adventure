@@ -9,9 +9,14 @@ def _env(name: str, default: str | None = None) -> str | None:
     return value or default
 
 
-def _float(name: str, default: float) -> float:
+def _float(name: str, default: float | None) -> float | None:
     value = _env(name)
     return float(value) if value else default
+
+
+def _bool(name: str, default: bool) -> bool:
+    value = _env(name)
+    return default if value is None else value.lower() in ("1", "true", "yes", "on")
 
 
 def _url(name: str) -> str | None:
@@ -67,6 +72,24 @@ class Settings:
 
     seerr_url: str | None
     seerr_api_key: str | None
+    seerr_allow_requests: bool
+    seerr_request_user_id: int | None
+
+    latitude: float | None
+    longitude: float | None
+
+    truenas_url: str | None
+    truenas_api_key: str | None
+    truenas_verify_ssl: bool
+
+    ntfy_url: str | None
+    ntfy_topic: str | None
+    ntfy_token: str | None
+    ntfy_prices: bool
+    ntfy_timers: bool
+    ntfy_nas: bool
+
+    screen_off_at_night: bool
 
     price_cheap: float
     price_expensive: float
@@ -82,6 +105,14 @@ class Settings:
     @property
     def octopus_enabled(self) -> bool:
         return bool(self.octopus_api_key and self.octopus_account)
+
+    @property
+    def weather_enabled(self) -> bool:
+        return self.latitude is not None and self.longitude is not None
+
+    @property
+    def truenas_enabled(self) -> bool:
+        return bool(self.truenas_url and self.truenas_api_key)
 
     @property
     def jellyfin_enabled(self) -> bool:
@@ -105,6 +136,20 @@ def load() -> Settings:
         jellyfin_api_key=_env("JELLYFIN_API_KEY"),
         seerr_url=_url("SEERR_URL"),
         seerr_api_key=_env("SEERR_API_KEY"),
+        seerr_allow_requests=_bool("SEERR_ALLOW_REQUESTS", True),
+        seerr_request_user_id=int(_env("SEERR_REQUEST_USER_ID")) if _env("SEERR_REQUEST_USER_ID") else None,
+        latitude=_float("LATITUDE", None),
+        longitude=_float("LONGITUDE", None),
+        truenas_url=_url("TRUENAS_URL"),
+        truenas_api_key=_env("TRUENAS_API_KEY"),
+        truenas_verify_ssl=_bool("TRUENAS_VERIFY_SSL", False),
+        ntfy_url=_url("NTFY_URL"),
+        ntfy_topic=_env("NTFY_TOPIC"),
+        ntfy_token=_env("NTFY_TOKEN"),
+        ntfy_prices=_bool("NTFY_PRICES", True),
+        ntfy_timers=_bool("NTFY_TIMERS", True),
+        ntfy_nas=_bool("NTFY_NAS", True),
+        screen_off_at_night=_bool("SCREEN_OFF_AT_NIGHT", False),
         price_cheap=_float("PRICE_CHEAP", 15.0),
         price_expensive=_float("PRICE_EXPENSIVE", 25.0),
         cheapest_windows=tuple(float(w) for w in windows.split(",") if w.strip()),

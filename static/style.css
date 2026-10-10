@@ -367,3 +367,37 @@ table.days tr.click:active td { background: var(--surface-2); }
 .alarm-actions { display: flex; gap: 16px; }
 .alarm .big-btn { height: 80px; padding: 0 36px; font-size: 24px; background: rgba(0,0,0,.35); }
 .alarm .big-btn.primary { background: #fff; color: #5a1010; }
+
+/* --- top bar chips: weather, NAS --- */
+.top-chips { display: flex; gap: 6px; }
+.tchip { display: inline-flex; align-items: center; gap: 6px; }
+.tchip.wx span { color: var(--text-2); font-weight: 500; font-size: 13px; }
+.led { display: inline-block; width: 10px; height: 10px; border-radius: 50%; background: var(--cheap); flex: none; }
+.led.warn, .tchip.nas.warn .led { background: var(--normal); }
+.led.error, .led.err, .tchip.nas.error .led, .tchip.nas.err .led { background: var(--expensive); }
+.led.big { width: 22px; height: 22px; }
+.tchip.nas.error, .tchip.nas.err { color: #ff8a8a; }
+.tchip.nas.warn { color: var(--normal); }
+.wxi { flex: none; }
+
+/* weather view */
+.wx-now { flex-direction: row !important; align-items: center; gap: 18px; }
+.wx-temp { font-size: 44px; font-weight: 650; line-height: 1.1; font-variant-numeric: tabular-nums; }
+.wx-sum { margin-left: auto; text-align: right; display: flex; flex-direction: column; gap: 4px; align-items: flex-end; }
+.wx-sum .title { font-size: 18px; font-weight: 650; }
+.wx-hours { display: grid; grid-template-columns: repeat(12, 1fr); gap: 4px; }
+.wx-h { display: flex; flex-direction: column; align-items: center; gap: 2px; font-variant-numeric: tabular-nums; }
+.nas-head { display: flex; align-items: center; gap: 14px; }
+
+/* seerr search */
+.searchbox { width: 100%; height: 52px; border-radius: 12px; background: var(--surface-2); text-align: left; padding: 0 16px; font-size: 20px; }
+.kbd { display: flex; flex-direction: column; gap: 6px; margin-top: 4px; }
+.krow { display: flex; gap: 6px; justify-content: center; }
+.key { flex: 1; max-width: 86px; height: 50px; border-radius: 10px; background: var(--surface-2); font-size: 20px; font-weight: 600; text-transform: uppercase; }
+.key.wide { max-width: 140px; flex: 1.6; font-size: 16px; text-transform: none; }
+.key.space { max-width: 420px; flex: 5; font-size: 15px; text-transform: none; color: var(--text-2); }
+.key.go { background: var(--accent); color: #fff; }
+.key:active { filter: brightness(1.4); }
+.big-btn.req { margin-top: 14px; }
+.big-btn.confirm { background: var(--normal); color: #000; }
+.row .t .title, .row .t .meta { display: block; }

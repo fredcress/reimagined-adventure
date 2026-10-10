@@ -1,4 +1,4 @@
-"""Kitchen monitor: polls Octopus / Jellyfin / Seerr and serves the kiosk page.
+"""Kitchen monitor: polls Octopus / Jellyfin / Seerr / weather / TrueNAS and serves the kiosk page.
 
 The Pi only renders what this serves. Overview data is polled in the
 background and cached; detail views (tapping a panel) fetch on demand.
@@ -24,9 +24,12 @@ from pydantic import BaseModel, Field
 
 from . import agile, config, demo
 from .agile import SLOT
+from .notify import Ntfy
+from .sources import weather as wx
 from .sources.jellyfin import Jellyfin
 from .sources.octopus import Octopus
 from .sources.seerr import FILTERS, Seerr
+from .sources.truenas import TrueNAS
 
 log = logging.getLogger("kitchen")
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -60,6 +63,8 @@ class Source:
 octopus_on = S.demo or S.octopus_enabled
 jellyfin_on = S.demo or S.jellyfin_enabled
 seerr_on = S.demo or S.seerr_enabled
+weather_on = S.demo or S.weather_enabled
+nas_on = S.demo or S.truenas_enabled
 
 store = {
     "rates": Source(octopus_on),
@@ -67,12 +72,17 @@ store = {
     "sessions": Source(jellyfin_on),
     "latest": Source(jellyfin_on),
     "seerr": Source(seerr_on),
+    "weather": Source(weather_on),
+    "nas": Source(nas_on),
 }
 
 client: httpx.AsyncClient
 octopus: Octopus
 jellyfin: Jellyfin
 seerr: Seerr
+weather: wx.Weather | None = None
+truenas: TrueNAS | None = None
+ntfy: Ntfy
 
 
 def history_start() -> datetime:
@@ -91,7 +101,52 @@ async def fetch_rates() -> dict:
     unit, standing = await asyncio.gather(
         octopus.unit_rates(start, end), octopus.standing_charges(start, end)
     )
+    await push_tomorrow_prices(unit)
     return {"unit": unit, "standing": standing}
+
+
+_prices_pushed_for: date | None = None
+
+
+async def push_tomorrow_prices(unit: list[agile.Rate]):
+    """Once tomorrow's prices are published, push a summary (once per day)."""
+    global _prices_pushed_for
+    now = datetime.now(TZ)
+    tomorrow = now.date() + timedelta(days=1)
+    if not (ntfy.enabled and S.ntfy_prices) or _prices_pushed_for == tomorrow or now.hour >= 22:
+        return
+    slots = day_slots(unit, tomorrow)
+    if len(slots) < agile.day_slot_count(tomorrow, TZ):
+        return
+    _prices_pushed_for = tomorrow
+    title, message, tags = price_summary(unit, slots, now)
+    await ntfy.send(title, message, tags=tags)
+
+
+def price_summary(unit: list[agile.Rate], slots: list[agile.Rate], now: datetime) -> tuple[str, str, list[str]]:
+    hm = lambda t: t.astimezone(TZ).strftime("%H:%M")  # noqa: E731
+    st = stats(slots)
+    lines = [f"Range {st['min']:.1f}p to {st['max']:.1f}p, average {st['avg']:.1f}p"]
+    if w := agile.cheapest_window(slots, 3):
+        lines.append(f"Cheapest 3h: {hm(w.start)}-{hm(w.end)} at {w.price:.1f}p")
+    plunge = [s for s in slots if s.price <= 0]
+    if plunge:
+        runs, run = [], [plunge[0]]
+        for s in plunge[1:]:
+            if s.start == run[-1].end:
+                run.append(s)
+            else:
+                runs.append(run)
+                run = [s]
+        runs.append(run)
+        spans = ", ".join(f"{hm(r[0].start)}-{hm(r[-1].end)}" for r in runs)
+        lines.append(f"PLUNGE (paid to use): {spans}, as low as {min(s.price for s in plunge):.1f}p")
+    horizon = agile.last_known(unit) or slots[-1].end
+    for a in S.appliances:
+        if b := agile.best_start(unit, now, timedelta(hours=a.hours), timedelta(hours=S.appliance_step_hours), horizon):
+            lines.append(f"{a.name}: start {hm(b['start'])} ({b['avg']:.1f}p avg)")
+    title = "Tomorrow's prices are out" + (" - plunge pricing!" if plunge else "")
+    return title, "\n".join(lines), ["zap"] + (["tada"] if plunge else [])
 
 
 async def fetch_usage():
@@ -115,6 +170,40 @@ async def fetch_seerr() -> dict:
     return {"counts": counts, "requests": reqs["results"]}
 
 
+async def fetch_weather() -> dict:
+    return demo.weather(TZ) if S.demo and not S.weather_enabled else await weather.forecast()
+
+
+_nas_last_state: str | None = None
+
+
+async def fetch_nas() -> dict:
+    global _nas_last_state
+    health = demo.nas() if S.demo else await truenas.health()
+    state = health["state"]
+    if S.ntfy_nas and ntfy.enabled and not S.demo and state != _nas_last_state:
+        if state != "ok":
+            text = "\n".join(f"[{a['level']}] {a['text']}" for a in health["alerts"][:5]) or "A pool is not healthy."
+            await ntfy.send(f"NAS {state}", text, tags=["warning"], priority=4 if state == "error" else 3)
+        elif _nas_last_state is not None:
+            await ntfy.send("NAS back to OK", "All pools healthy, no warnings.", tags=["white_check_mark"])
+    _nas_last_state = state
+    return health
+
+
+async def watch_timers():
+    """Push finished timers to phones (for when nobody's in the kitchen)."""
+    pushed: set[str] = set()
+    while True:
+        now = datetime.now(timezone.utc)
+        for t in list(timers.values()):
+            if t.ends <= now and t.id not in pushed:
+                pushed.add(t.id)
+                await ntfy.send(f"{t.label or 'Timer'} done", f"{t.label or 'Your'} timer has finished.", tags=["alarm_clock"], priority=4)
+        pushed &= set(timers)
+        await asyncio.sleep(2)
+
+
 async def poll(name: str, fetch: Callable[[], Awaitable[Any]], every: float):
     src = store[name]
     while True:
@@ -130,17 +219,30 @@ async def poll(name: str, fetch: Callable[[], Awaitable[Any]], every: float):
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global client, octopus, jellyfin, seerr
+    global client, octopus, jellyfin, seerr, weather, truenas, ntfy
     client = httpx.AsyncClient(timeout=15)
     octopus, jellyfin, seerr = Octopus(S, client), Jellyfin(S, client), Seerr(S, client)
+    ntfy = Ntfy(S.ntfy_url, S.ntfy_topic, S.ntfy_token, client)
+    if S.weather_enabled:
+        weather = wx.Weather(S.latitude, S.longitude, TZ, client)
+    if S.truenas_enabled:
+        try:
+            truenas = TrueNAS(S.truenas_url, S.truenas_api_key, S.truenas_verify_ssl)
+        except ValueError as e:
+            store["nas"].error = str(e)
+            store["nas"].enabled = False
     jobs = [
         ("rates", fetch_rates, 15 * 60),
         ("usage", fetch_usage, 60 * 60),
         ("sessions", fetch_sessions, 10),
         ("latest", fetch_latest, 10 * 60),
         ("seerr", fetch_seerr, 2 * 60),
+        ("weather", fetch_weather, 15 * 60),
+        ("nas", fetch_nas, 5 * 60),
     ]
     tasks = [asyncio.create_task(poll(n, f, t)) for n, f, t in jobs if store[n].enabled]
+    if ntfy.enabled and S.ntfy_timers:
+        tasks.append(asyncio.create_task(watch_timers()))
     log.info("started (build %s, demo=%s)", BUILD, S.demo)
     yield
     for t in tasks:
@@ -293,6 +395,15 @@ async def state():
         "seerr": {**store["seerr"].meta(), **(store["seerr"].data or {})},
         "timers": timer_list(),
         "timer_labels": S.timer_labels,
+        "weather": {
+            **store["weather"].meta(),
+            **(wx.view(store["weather"].data, now) if store["weather"].data else {}),
+        },
+        "nas": {**store["nas"].meta(), **(store["nas"].data or {})},
+        "features": {
+            "seerr_requests": seerr_on and S.seerr_allow_requests,
+            "ntfy": ntfy.enabled,
+        },
     }
 
 
@@ -367,6 +478,49 @@ async def seerr_requests(
         return await seerr.requests(take=take, skip=skip, filter=filter)
     except httpx.HTTPError as e:
         raise HTTPException(502, f"Seerr: {e}")
+
+
+@app.get("/api/seerr/search")
+async def seerr_search(q: str = Query(min_length=1, max_length=100), page: int = Query(1, ge=1, le=50)):
+    if not seerr_on:
+        raise HTTPException(404, "Seerr not configured")
+    try:
+        return demo.seerr_discover(q) if S.demo else await seerr.search(q, page)
+    except httpx.HTTPError as e:
+        raise HTTPException(502, f"Seerr: {e}")
+
+
+@app.get("/api/seerr/discover")
+async def seerr_discover(kind: str = "trending", page: int = Query(1, ge=1, le=50)):
+    if not seerr_on:
+        raise HTTPException(404, "Seerr not configured")
+    if kind not in ("trending", "movies", "tv"):
+        raise HTTPException(400, "kind must be trending, movies or tv")
+    try:
+        return demo.seerr_discover() if S.demo else await seerr.discover(kind, page)
+    except httpx.HTTPError as e:
+        raise HTTPException(502, f"Seerr: {e}")
+
+
+class RequestIn(BaseModel):
+    type: str = Field(pattern="^(movie|tv)$")
+    tmdb_id: int = Field(gt=0)
+
+
+@app.post("/api/seerr/request")
+async def seerr_request(body: RequestIn):
+    if not (seerr_on and S.seerr_allow_requests):
+        raise HTTPException(403, "Requests are turned off (SEERR_ALLOW_REQUESTS)")
+    try:
+        if S.demo:
+            return demo.seerr_request(body.type, body.tmdb_id)
+        result = await seerr.request(body.type, body.tmdb_id, S.seerr_request_user_id)
+    except httpx.HTTPStatusError as e:
+        raise HTTPException(502, f"Seerr: {e}")
+    except httpx.HTTPError as e:
+        raise HTTPException(502, f"Seerr: {e}")
+    log.info("requested %s %s via kitchen screen", body.type, body.tmdb_id)
+    return result
 
 
 _img_cache: dict[str, tuple[bytes, str]] = {}
@@ -461,3 +615,25 @@ async def extend_timer(timer_id: str, body: TimerAdd):
 async def delete_timer(timer_id: str):
     timers.pop(timer_id, None)
     return timer_list()
+
+
+# --- screen power + ntfy test ---------------------------------------------------
+
+
+@app.get("/api/display")
+async def display():
+    """What the Pi's screen should do. Polled by pi/kiosk-display.py."""
+    now = datetime.now(TZ)
+    alarm = any(t.ends <= datetime.now(timezone.utc) for t in timers.values())
+    off = S.screen_off_at_night and is_night(now)
+    return {"on": alarm or not off, "alarm": alarm, "night": is_night(now)}
+
+
+@app.post("/api/ntfy/test")
+async def ntfy_test():
+    if not ntfy.enabled:
+        raise HTTPException(404, "ntfy not configured (NTFY_URL, NTFY_TOPIC)")
+    ok = await ntfy.send("Kitchen monitor", "Test notification - ntfy is working.", tags=["wave"])
+    if not ok:
+        raise HTTPException(502, "ntfy send failed - check the server logs")
+    return {"ok": True}

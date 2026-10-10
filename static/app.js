@@ -264,15 +264,50 @@ function renderSeerrCard() {
 
 function renderStatus() {
   const chips = [];
-  if (state && state.demo) chips.push('<span class="chip">Demo data</span>');
+  if (state && state.demo) chips.push('<span class="chip">Demo</span>');
   if (offline) chips.push(`<span class="chip err">Server offline${lastOk ? ` · since ${fmtTime(lastOk)}` : ''}</span>`);
   if (state) {
-    const names = { energy: 'Octopus', jellyfin: 'Jellyfin', seerr: 'Seerr' };
+    const names = { energy: 'Octopus', jellyfin: 'Jellyfin', seerr: 'Seerr', weather: 'Weather' };
     for (const [k, label] of Object.entries(names)) {
       if (state[k].error) chips.push(`<span class="chip warn" title="${esc(state[k].error)}">${label} ⚠</span>`);
     }
   }
   $('status').innerHTML = chips.join('');
+  renderTopChips();
+}
+
+// Weather + NAS chips in the top bar; both open their detail views.
+function renderTopChips() {
+  const w = state && state.weather;
+  let html = '';
+  if (w && w.current) {
+    const next = w.rain_at ? `rain ${fmtTime(w.rain_at)}` : w.drying && w.current.day ? 'drying day' : 'dry';
+    html += `<button class="tchip wx" data-href="#/weather">${wxIcon(w.current.icon, 20)}<b>${Math.round(w.current.temp)}°</b><span>${next}</span></button>`;
+  }
+  const n = state && state.nas;
+  if (n && (n.enabled || n.error)) {
+    const st = n.error && !n.state ? 'err' : n.state || 'err';
+    const label = st === 'ok' ? 'NAS' : st === 'warn' ? 'NAS !' : 'NAS ✕';
+    html += `<button class="tchip nas ${st}" data-href="#/nas"><i class="led"></i>${label}</button>`;
+  }
+  $('top-chips').innerHTML = html;
+}
+
+// Small weather icons as inline SVG (the Pi's fonts have no emoji).
+function wxIcon(name, size = 24) {
+  const sun = '<circle cx="12" cy="12" r="4.5" fill="#fab219" stroke="none"/><path d="M12 2v2.5M12 19.5V22M2 12h2.5M19.5 12H22M4.9 4.9l1.8 1.8M17.3 17.3l1.8 1.8M4.9 19.1l1.8-1.8M17.3 6.7l1.8-1.8" stroke="#fab219"/>';
+  const cloud = (y = 0, fill = '#c3c2b7') => `<path d="M7 ${18 + y}h10a4 4 0 0 0 0-8 5.5 5.5 0 0 0-10.6 1.5A3.3 3.3 0 0 0 7 ${18 + y}z" fill="${fill}" stroke="none"/>`;
+  const shapes = {
+    clear: sun,
+    night: '<path d="M20 14.5A8 8 0 1 1 9.5 4a6.5 6.5 0 0 0 10.5 10.5z" fill="#c3c2b7" stroke="none"/>',
+    partly: '<g transform="translate(-3,-3) scale(.8)">' + sun + '</g>' + cloud(1),
+    cloud: cloud(),
+    rain: cloud(-3) + '<path d="M8 19l-1 3M12 19l-1 3M16 19l-1 3" stroke="#3987e5"/>',
+    snow: cloud(-3) + '<path d="M8 20h.01M12 21h.01M16 20h.01" stroke="#f0efec" stroke-width="3"/>',
+    storm: cloud(-3) + '<path d="M12 15l-2 4h3l-2 4" stroke="#fab219"/>',
+    fog: '<path d="M4 9h16M6 13h12M4 17h16" stroke="#c3c2b7"/>',
+  };
+  return `<svg class="wxi" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round">${shapes[name] || shapes.cloud}</svg>`;
 }
 
 // --- detail views ------------------------------------------------------------
@@ -280,7 +315,9 @@ function renderStatus() {
 const VIEWS = {
   energy: { title: 'Energy', tabs: [['today', 'Today'], ['tomorrow', 'Tomorrow'], ['usage', 'Usage']] },
   jellyfin: { title: 'Jellyfin', tabs: [['now', 'Now playing'], ['all', 'Recently added'], ['movies', 'Movies'], ['episodes', 'Episodes']] },
-  seerr: { title: 'Requests', tabs: [['pending', 'Pending'], ['processing', 'Processing'], ['available', 'Available'], ['all', 'All']] },
+  seerr: { title: 'Requests', tabs: [['pending', 'Pending'], ['processing', 'Processing'], ['available', 'Available'], ['all', 'All'], ['search', 'Search'], ['trending', 'Trending']] },
+  weather: { title: 'Weather', tabs: [['forecast', 'Forecast']] },
+  nas: { title: 'NAS', tabs: [['health', 'Health']] },
   timers: { title: 'Timers', tabs: [['timers', 'Timers']] },
 };
 
@@ -334,6 +371,10 @@ function renderDetail(r = route(), quiet = false) {
     return pagedGrid(`/api/jellyfin/latest?kind=${r.tab}`, 18, seq, renderPosterGrid);
   }
   if (r.view === 'timers') return renderTimers();
+  if (r.view === 'weather') return renderWeather();
+  if (r.view === 'nas') return renderNas();
+  if (r.view === 'seerr' && r.tab === 'search') return renderSeerrSearch(seq);
+  if (r.view === 'seerr' && r.tab === 'trending') return discoverGrid('/api/seerr/discover?kind=trending', seq);
   if (r.view === 'seerr') return pagedGrid(`/api/seerr/requests?filter=${r.tab}`, 15, seq, renderRequestRows);
 }
 
@@ -485,6 +526,7 @@ function renderUsageDay(d) {
 // --- sheet -----------------------------------------------------------------------
 
 function openSheet(it) {
+  if (it.tmdb_id) return openDiscoverSheet(it);
   const img = it.poster || jfImg(it.image);
   const meta = [it.subtitle, it.year, it.type && { tv: 'TV', movie: 'Movie' }[it.type], it.user && `requested by ${it.user}`]
     .filter(Boolean).map(esc).join(' · ');
@@ -495,6 +537,168 @@ function openSheet(it) {
   $('sheet').hidden = false;
 }
 function closeSheet() { $('sheet').hidden = true; }
+
+// --- seerr: search, trending, request ---------------------------------------------
+
+const DISCOVER_STATUS = { unknown: null, pending: 'requested', processing: 'processing', partial: 'partial', available: 'available', blacklisted: 'blocked', deleted: null };
+let seerrQuery = '';
+let seerrKeyboard = true;
+
+function discoverCards(items) {
+  return `<div class="grid-posters">${items.map((it, i) => {
+    const st = DISCOVER_STATUS[it.status];
+    return `<button class="pcard" data-item="${i}">${poster(it.title, it.poster)}
+      <div class="title">${esc(it.title)}</div>
+      <div class="meta">${it.type === 'tv' ? 'TV' : 'Movie'}${it.year ? ` · ${esc(it.year)}` : ''}</div>
+      ${st ? `<div><span class="pill ${esc(it.status)}">${st}</span></div>` : ''}</button>`;
+  }).join('')}</div>`;
+}
+
+function showDiscover(el, items) {
+  el.innerHTML = items.length ? discoverCards(items) : '<div class="empty">No results</div>';
+  el.querySelectorAll('[data-item]').forEach((b) => b.addEventListener('click', () => openSheet(items[+b.dataset.item])));
+}
+
+function discoverGrid(url, seq) {
+  const body = $('detail-body');
+  body.innerHTML = '<div class="card" id="disc"><div class="empty">Loading…</div></div>';
+  return getJSON(url).then((d) => { if (seq === renderSeq) showDiscover($('disc'), d.results); })
+    .catch((e) => { if (seq === renderSeq) $('disc').innerHTML = `<div class="empty">Couldn't load: ${esc(e.message)}</div>`; });
+}
+
+const KEY_ROWS = ['1234567890', 'qwertyuiop', 'asdfghjkl', 'zxcvbnm'];
+
+function renderSeerrSearch(seq) {
+  const body = $('detail-body');
+  body.innerHTML = `<div class="card">
+      <button class="searchbox" id="sbox"><span id="sq">${esc(seerrQuery) || '<span class="note">Tap to type a film or series…</span>'}</span></button>
+      <div class="kbd" id="kbd" ${seerrKeyboard ? '' : 'hidden'}>
+        ${KEY_ROWS.map((row) => `<div class="krow">${[...row].map((k) => `<button class="key" data-k="${k}">${k}</button>`).join('')}${row === 'zxcvbnm' ? '<button class="key wide" data-k="back">⌫</button>' : ''}</div>`).join('')}
+        <div class="krow"><button class="key wide" data-k="clear">Clear</button><button class="key space" data-k=" ">space</button><button class="key wide go" data-k="go">Search</button></div>
+      </div>
+    </div>
+    <div class="card" id="disc" ${seerrQuery && !seerrKeyboard ? '' : 'hidden'}></div>`;
+  const update = () => { $('sq').innerHTML = esc(seerrQuery) || '<span class="note">Tap to type a film or series…</span>'; };
+  const run = () => {
+    if (!seerrQuery.trim()) return;
+    seerrKeyboard = false;
+    $('kbd').hidden = true;
+    $('disc').hidden = false;
+    $('disc').innerHTML = '<div class="empty">Searching…</div>';
+    getJSON(`/api/seerr/search?q=${encodeURIComponent(seerrQuery.trim())}`)
+      .then((d) => { if (seq === renderSeq) showDiscover($('disc'), d.results); })
+      .catch((e) => { if (seq === renderSeq) $('disc').innerHTML = `<div class="empty">Search failed: ${esc(e.message)}</div>`; });
+  };
+  $('sbox').addEventListener('click', () => { seerrKeyboard = true; $('kbd').hidden = false; });
+  $('kbd').addEventListener('click', (e) => {
+    const k = e.target.closest('[data-k]');
+    if (!k) return;
+    const key = k.dataset.k;
+    if (key === 'back') seerrQuery = seerrQuery.slice(0, -1);
+    else if (key === 'clear') seerrQuery = '';
+    else if (key === 'go') return run();
+    else if (seerrQuery.length < 60) seerrQuery += key;
+    update();
+  });
+  if (seerrQuery && !seerrKeyboard) run();
+}
+
+function openDiscoverSheet(it) {
+  const st = DISCOVER_STATUS[it.status];
+  const canRequest = state.features && state.features.seerr_requests && !st;
+  $('sheet-body').innerHTML = `${poster(it.title, it.poster)}<div style="flex:1;min-width:0">
+    <h3>${esc(it.title)}</h3><div class="note">${it.type === 'tv' ? 'TV series' : 'Movie'}${it.year ? ` · ${esc(it.year)}` : ''}</div>
+    ${st ? `<div style="margin-top:8px"><span class="pill ${esc(it.status)}">${st}</span></div>` : ''}
+    <p>${esc(it.overview || 'No description.')}</p>
+    ${canRequest ? `<button class="big-btn primary req" data-keep id="req">Request${it.type === 'tv' ? ' (all seasons)' : ''}</button>` : ''}
+    <div class="note" id="req-msg" data-keep></div></div>`;
+  $('sheet').hidden = false;
+  const btn = $('req');
+  if (!btn) return;
+  let armed = false;
+  btn.addEventListener('click', async () => {
+    if (!armed) {
+      armed = true;
+      btn.textContent = 'Tap again to confirm';
+      btn.classList.add('confirm');
+      setTimeout(() => { if (armed && btn.isConnected && !btn.disabled) { armed = false; btn.textContent = 'Request'; btn.classList.remove('confirm'); } }, 4000);
+      return;
+    }
+    btn.disabled = true;
+    btn.textContent = 'Requesting…';
+    try {
+      const r = await fetch('/api/seerr/request', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ type: it.type, tmdb_id: it.tmdb_id }) });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(d.detail || `HTTP ${r.status}`);
+      it.status = d.status === 'approved' ? 'processing' : 'pending';
+      btn.remove();
+      $('req-msg').textContent = d.status === 'approved' ? 'Requested and approved - downloading soon.' : 'Requested - waiting for approval.';
+    } catch (e) {
+      btn.disabled = false;
+      armed = false;
+      btn.textContent = 'Request';
+      btn.classList.remove('confirm');
+      $('req-msg').textContent = `Request failed: ${e.message}`;
+    }
+  });
+}
+
+// --- weather + NAS views ------------------------------------------------------
+
+function renderWeather() {
+  const w = state.weather;
+  const body = $('detail-body');
+  if (!w || !w.current) {
+    body.innerHTML = `<div class="card"><div class="empty">${w && w.enabled ? 'Waiting for the forecast…' : 'Set LATITUDE and LONGITUDE in .env to show the weather.'}</div></div>`;
+    return;
+  }
+  const c = w.current;
+  const summary = w.rain_at ? `Rain likely from ${fmtTime(w.rain_at)}` : `Dry until at least ${fmtTime(w.dry_until)}`;
+  const hours = w.hourly;
+  body.innerHTML = `<div class="card wx-now">
+      ${wxIcon(c.icon, 72)}
+      <div><div class="wx-temp">${Math.round(c.temp)}°</div><div class="note">${esc(c.desc)} · feels ${Math.round(c.feels)}° · wind ${Math.round(c.wind)} mph</div></div>
+      <div class="wx-sum"><div class="title">${summary}</div>
+        ${w.today ? `<div class="note">Today ${Math.round(w.today.max)}° / ${Math.round(w.today.min)}° · rain chance up to ${w.today.pop ?? 0}%</div>` : ''}
+        ${!c.day ? '' : w.drying ? '<span class="pill available">Good drying day</span>' : w.rain_at ? '<span class="pill pending">Washing in before the rain</span>' : ''}</div>
+    </div>
+    <div class="card"><div class="wx-hours">${hours.slice(0, 12).map((h) => `<div class="wx-h"><span class="note">${fmtTime(h.time).slice(0, 2)}</span>${wxIcon(h.icon, 26)}<b>${Math.round(h.temp)}°</b><span class="note">${h.pop ?? 0}%</span></div>`).join('')}</div></div>
+    <div class="card"><div class="chart-head"><span>Chance of rain, next 24h, % · tap an hour</span><span class="readout" id="wx-readout"></span></div>
+      <div class="chart" style="height:150px" id="wx-chart"></div></div>
+    <div class="card"><div class="rows">${w.daily.map((d) => `<div class="row">
+      <span style="width:110px">${fmtDay(dayDate(d.date))}</span>${wxIcon(d.icon, 30)}
+      <span class="t"><span class="title">${esc(d.desc)}</span><span class="meta">${d.pop ?? 0}% rain${d.precip ? ` · ${d.precip} mm` : ''}</span></span>
+      <span class="num"><b>${Math.round(d.max)}°</b> <span class="note">${Math.round(d.min)}°</span></span></div>`).join('')}</div></div>`;
+  const draw = (sel) => barChart($('wx-chart'), hours, {
+    value: (h) => h.pop || 0,
+    color: () => 'var(--accent)',
+    selected: sel,
+    xLabel: (h, i) => (i % 3 === 0 ? fmtTime(h.time).slice(0, 2) : null),
+    onSelect: (i) => {
+      const h = hours[i];
+      $('wx-readout').textContent = `${fmtTime(h.time)} · ${Math.round(h.temp)}° · ${h.pop ?? 0}% · ${h.desc}`;
+      draw(i);
+    },
+  });
+  draw(null);
+}
+
+function renderNas() {
+  const n = state.nas;
+  const body = $('detail-body');
+  if (!n || (!n.enabled && !n.error)) { body.innerHTML = '<div class="card"><div class="empty">Set TRUENAS_URL and TRUENAS_API_KEY in .env.</div></div>'; return; }
+  if (!n.state) { body.innerHTML = `<div class="card"><div class="empty">${n.error ? `Can't reach TrueNAS: ${esc(n.error)}` : 'Checking…'}</div></div>`; return; }
+  const label = { ok: 'All good', warn: 'Needs a look', error: 'Problem' }[n.state];
+  const up = n.uptime_s ? `up ${Math.floor(n.uptime_s / 86400)}d ${Math.floor((n.uptime_s % 86400) / 3600)}h` : '';
+  body.innerHTML = `<div class="card"><div class="nas-head"><i class="led big ${n.state}"></i><div><div class="wx-temp" style="font-size:30px">${label}</div>
+      <div class="note">${esc(n.version || '')}${up ? ` · ${up}` : ''}${n.error ? ` · last check failed: ${esc(n.error)}` : ''}</div></div></div></div>
+    <div class="card"><h2>Pools</h2><div class="rows">${n.pools.map((p) => `<div class="row">
+      <i class="led ${p.healthy ? 'ok' : 'error'}"></i><span class="t"><span class="title">${esc(p.name)}</span><span class="meta">${esc(p.status)}</span></span>
+      ${p.used_pct != null ? `<span style="width:260px"><div class="bar"><i style="width:${p.used_pct}%;${p.used_pct >= 90 ? 'background:var(--expensive)' : ''}"></i></div><span class="note">${p.used_pct}% used</span></span>` : ''}</div>`).join('') || '<div class="empty">No pools</div>'}</div></div>
+    <div class="card"><h2>Alerts</h2><div class="rows">${n.alerts.map((a) => `<div class="row">
+      <span class="pill ${a.level === 'WARNING' ? 'pending' : ['INFO', 'NOTICE'].includes(a.level) ? '' : 'declined'}">${esc(a.level.toLowerCase())}</span>
+      <span class="t" style="white-space:normal">${esc(a.text)}</span></div>`).join('') || '<div class="empty">No active alerts</div>'}</div></div>`;
+}
 
 // --- timers --------------------------------------------------------------------
 
@@ -624,7 +828,7 @@ function beep() {
 function tickClock() {
   const now = new Date();
   $('time').textContent = dtf({ hour: '2-digit', minute: '2-digit' }).format(now);
-  $('date').textContent = dtf({ weekday: 'long', day: 'numeric', month: 'long' }).format(now);
+  $('date').textContent = dtf({ weekday: 'short', day: 'numeric', month: 'short' }).format(now);
   $('night-time').textContent = $('time').textContent;
   const night = state && state.night && Date.now() > nightWakeUntil && Date.now() - lastTouch > 30_000;
   $('night').hidden = !night;
@@ -662,7 +866,7 @@ document.addEventListener('click', (e) => {
   if (href) location.hash = href.dataset.href;
 });
 $('back').addEventListener('click', () => { location.hash = ''; });
-$('sheet').addEventListener('click', closeSheet);
+$('sheet').addEventListener('click', (e) => { if (!e.target.closest('[data-keep]')) closeSheet(); });
 $('alarm').addEventListener('click', (e) => {
   const b = e.target.closest('[data-alarm]');
   const id = $('alarm').dataset.id;

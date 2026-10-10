@@ -1,5 +1,7 @@
 """Seerr / Jellyseerr / Overseerr API client: request counts and request lists."""
 
+from urllib.parse import quote
+
 import httpx
 
 from ..config import Settings
@@ -79,3 +81,55 @@ class Seerr:
             )
         page = body.get("pageInfo") or {}
         return {"results": out, "total": page.get("results", len(out)), "skip": skip, "take": take}
+
+    # --- discovery + requests ---------------------------------------------------
+
+    @staticmethod
+    def _result(r: dict) -> dict | None:
+        """Search/discover row -> display dict (None for people)."""
+        media_type = r.get("mediaType")
+        if media_type not in ("movie", "tv"):
+            return None
+        date = r.get("releaseDate") or r.get("firstAirDate") or ""
+        poster = r.get("posterPath")
+        status = MEDIA_STATUS.get((r.get("mediaInfo") or {}).get("status"), "unknown")
+        return {
+            "tmdb_id": r.get("id"),
+            "type": media_type,
+            "title": r.get("title") or r.get("name") or "?",
+            "year": date[:4] or None,
+            "poster": f"{TMDB_IMG}{poster}" if poster else None,
+            "overview": r.get("overview"),
+            # "unknown" = nobody has requested it yet
+            "status": status,
+        }
+
+    async def _results(self, path: str, page: int) -> dict:
+        body = await self._get(path, {"page": page}) if "?" not in path else await self._get(f"{path}&page={page}")
+        rows = [x for x in map(self._result, body.get("results", [])) if x]
+        return {"results": rows, "page": body.get("page", page), "pages": body.get("totalPages", 1)}
+
+    async def search(self, query: str, page: int = 1) -> dict:
+        # Seerr rejects '+' for spaces, so encode the query by hand.
+        return await self._results(f"/search?query={quote(query, safe='')}", page)
+
+    async def discover(self, kind: str, page: int = 1) -> dict:
+        path = {"trending": "/discover/trending", "movies": "/discover/movies", "tv": "/discover/tv"}[kind]
+        return await self._results(path, page)
+
+    async def request(self, media_type: str, tmdb_id: int, user_id: int | None = None) -> dict:
+        body: dict = {"mediaType": media_type, "mediaId": tmdb_id}
+        if media_type == "tv":
+            body["seasons"] = "all"
+        headers = dict(self.headers)
+        if user_id:
+            headers["X-Api-User"] = str(user_id)  # request on behalf of this Seerr user
+        resp = await self.client.post(f"{self.base}/request", json=body, headers=headers)
+        if resp.status_code >= 400:
+            try:
+                detail = resp.json().get("message")
+            except ValueError:
+                detail = None
+            raise httpx.HTTPStatusError(detail or f"HTTP {resp.status_code}", request=resp.request, response=resp)
+        r = resp.json()
+        return {"status": REQUEST_STATUS.get(r.get("status"), "pending")}

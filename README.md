@@ -29,7 +29,9 @@ Tap a panel to drill in:
 |---|---|
 | Energy | Today / Tomorrow (every half hour, tap a bar), Usage (31 days, tap a day for its half-hourly kWh coloured by price) |
 | Jellyfin | Now playing (live), Recently added / Movies / Episodes (poster grid, tap for details) |
-| Requests | Pending / Processing / Available / All (tap for details) |
+| Requests | Pending / Processing / Available / All, **Search** (on-screen keyboard) and **Trending**. Tap a poster, then Request, then tap again to confirm. |
+| Weather (top bar) | Now, next rain, drying-day hint, next 12h, rain chance for 24h, 7 days |
+| NAS (top bar) | Pool health and usage, active TrueNAS alerts |
 | Timers (top bar) | Presets 1-45 min, custom length, optional label (Pasta, Rice…), +1/+5 min, cancel |
 
 **Kitchen timers** live on the server, so they survive a page reload and show
@@ -38,6 +40,38 @@ on every view. When one finishes, the whole screen flashes with a beep, even in
 night mode, and offers +1 min, +5 min or Dismiss. Timers are kept in memory, so
 a container restart clears them. For sound, the Pi needs an audio output: most
 10" HDMI screens have small speakers, or use a USB speaker.
+
+**Seerr requests** go through the API key, so Seerr treats them as admin
+requests and normally auto-approves them. Set `SEERR_REQUEST_USER_ID` to request
+as a specific user instead (their request limits and approval rules then apply),
+or `SEERR_ALLOW_REQUESTS=0` to keep the screen browse-only. TV requests ask for
+all seasons.
+
+**Push notifications (ntfy)** go to your phone:
+- tomorrow's prices when they land (~4pm): range, cheapest 3h, any plunge slots, and when to start each appliance;
+- kitchen timers finishing;
+- the NAS going amber/red, and back to OK.
+
+Set `NTFY_URL`/`NTFY_TOPIC` and install the ntfy app subscribed to the same
+topic. Until you host your own server, `https://ntfy.sh` works. Anyone who
+guesses the topic name can read it there, so make it long and random.
+`POST /api/ntfy/test` sends a test message. Seerr has its own notification
+settings, so "your request is available" alerts are best set up there (its
+webhook agent can post to ntfy).
+
+**Screen off.** The browser can't turn the backlight off, so this runs on the Pi:
+`pi/kiosk-display.py` (installed by the setup script) asks the server every
+15 s whether the screen should be on.
+- `SCREEN_OFF_AT_NIGHT=1` turns it off between `NIGHT_START` and `NIGHT_END`.
+- A touch wakes it for 2 minutes.
+- A ringing timer always turns it on.
+- With a PIR motion sensor (`--pir <gpio>` at setup, e.g. an HC-SR501 on GPIO17),
+  the screen is only on when someone has moved or touched it in the last
+  10 minutes, day or night.
+
+It switches the display with `wlopm` (or `wlr-randr` as a fallback). Some cheap
+HDMI screens keep the backlight on with no signal and just show "No signal".
+If yours does, the dim night clock is the better option.
 
 **Appliance advice** checks start times in steps of the delay-start button
 (`APPLIANCE_DELAY_STEP`, default 1 h) and picks the start with the lowest
@@ -93,8 +127,9 @@ Flash **Raspberry Pi OS Lite** (64-bit) with Raspberry Pi Imager, setting up
 Wi-Fi/SSH and a user in the Imager settings. Then:
 
 ```sh
-scp pi/setup-kiosk.sh <user>@<pi>:
+scp pi/setup-kiosk.sh pi/kiosk-display.py <user>@<pi>:
 ssh <user>@<pi> 'sudo ./setup-kiosk.sh http://<nas-ip>:8085 && sudo reboot'
+# with a motion sensor on GPIO17:  sudo ./setup-kiosk.sh http://<nas-ip>:8085 --pir 17
 ```
 
 The script installs `cage` (a minimal Wayland kiosk compositor) and Chromium,
@@ -120,6 +155,12 @@ Any Pi 3B+/4/5 is fine. A Zero 2 W works but is sluggish.
 | `APPLIANCE_DELAY_STEP` | Hours per press of the delay-start button (default 1) |
 | `TIMER_LABELS` | Quick labels on the Timers screen |
 | `NIGHT_START`, `NIGHT_END` | Night clock, `HH:MM`. Leave blank to disable. |
+| `SEERR_ALLOW_REQUESTS`, `SEERR_REQUEST_USER_ID` | Requests from the screen (default on, as admin) |
+| `LATITUDE`, `LONGITUDE` | Weather location |
+| `TRUENAS_URL`, `TRUENAS_API_KEY`, `TRUENAS_VERIFY_SSL` | NAS chip. `https://` only. Needs TrueNAS 25.04+ (JSON-RPC API). |
+| `NTFY_URL`, `NTFY_TOPIC`, `NTFY_TOKEN` | Push notifications |
+| `NTFY_PRICES`, `NTFY_TIMERS`, `NTFY_NAS` | Which pushes to send (all on by default) |
+| `SCREEN_OFF_AT_NIGHT` | `1` = switch the screen off at night (needs kiosk-display on the Pi) |
 | `TZ` | Default `Europe/London` |
 
 A service left unconfigured shows "Not configured". The rest still work.
@@ -136,6 +177,8 @@ is down, the screen keeps showing old data and a ⚠ chip appears in the top bar
 | Jellyfin sessions | 10 s |
 | Jellyfin recently added | 10 min |
 | Seerr counts + latest | 2 min |
+| Weather | 15 min |
+| TrueNAS health | 5 min |
 
 Detail views (Jellyfin/Seerr lists, paging) are fetched live when you tap.
 Jellyfin posters are proxied through the server, so the Pi never needs the token.
@@ -148,6 +191,8 @@ API endpoints: `/api/state`, `/api/energy/prices?day=YYYY-MM-DD`,
 `/api/energy/usage`, `/api/energy/usage/YYYY-MM-DD`,
 `/api/jellyfin/latest?kind=all|movies|episodes&skip=&take=`,
 `/api/seerr/requests?filter=all|pending|approved|processing|available&skip=&take=`,
+`/api/seerr/search?q=`, `/api/seerr/discover?kind=trending|movies|tv`,
+`POST /api/seerr/request`, `/api/display`, `POST /api/ntfy/test`,
 `GET/POST /api/timers`, `POST /api/timers/{id}/add`, `DELETE /api/timers/{id}`,
 `/healthz`.
 
