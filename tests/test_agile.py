@@ -141,3 +141,28 @@ def test_appliance_config_parsing():
         ("Dishwasher quick", 2.5, None),
         ("Washer", 1 + 5 / 60, None),
     ]
+
+
+def test_pick_programs_prefers_cheaper_run_per_machine():
+    from app.config import Appliance
+    from app.main import pick_programs
+
+    progs = [Appliance("Dishwasher eco", 4.5, None), Appliance("Dishwasher quick", 2.5, None), Appliance("Washer 40", 2, None)]
+    items = [{"name": a.name, "start": "x", "avg": avg} for a, avg in zip(progs, [11.5, -1.6, 9.0])]
+    pick_programs(items, progs)
+    assert [i["best"] for i in items] == [False, True, True]
+    assert items[1]["beats"] == [{"name": "Dishwasher eco", "avg": 11.5, "run_p": None}]
+
+    # near tie: the program listed first wins; with kWh the cheaper run in pence wins
+    items = [{"name": a.name, "start": "x", "avg": avg} for a, avg in zip(progs, [10.2, 10.0, 9.0])]
+    pick_programs(items, progs)
+    assert items[0]["best"]
+    kwh = [Appliance("Dishwasher eco", 4.5, 0.8), Appliance("Dishwasher quick", 2.5, 1.2)]
+    items = [{"name": a.name, "start": "x", "avg": avg, "run_p": a.kwh * avg} for a, avg in zip(kwh, [12.0, 9.0])]
+    pick_programs(items, kwh)  # eco 9.6p vs quick 10.8p
+    assert items[0]["best"] and not items[1]["best"]
+
+    # a program that doesn't fit the known prices can't win
+    items = [{"name": "Dishwasher eco"}, {"name": "Dishwasher quick", "start": "x", "avg": 20.0, "run_p": 24.0}]
+    pick_programs(items, kwh)
+    assert items[1]["best"]

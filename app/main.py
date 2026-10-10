@@ -358,10 +358,40 @@ def appliance_advice(
                 avg=round(best["avg"], 2),
                 now_avg=round(best["now_avg"], 2) if best["now_avg"] is not None else None,
                 saving_p=saving,
+                run_p=round(a.kwh * best["avg"], 1) if a.kwh else None,
                 band=agile.band(best["avg"], S.price_cheap, S.price_expensive),
             )
         out.append(item)
+    pick_programs(out, S.appliances)
     return out
+
+
+def pick_programs(items: list[dict], appliances: list) -> None:
+    """Mark the program to recommend for each machine (`best`, plus `beats` for the others).
+
+    Programs of one machine share the first word of their name ("Dishwasher eco",
+    "Dishwasher quick"). With kWh for every program the cheapest run in pence wins,
+    otherwise the lowest average price. Near-ties go to the program listed first.
+    """
+    groups: dict[str, list[int]] = {}
+    for i, a in enumerate(appliances):
+        groups.setdefault(a.name.split()[0].lower(), []).append(i)
+    for idx in groups.values():
+        runs = [i for i in idx if items[i].get("start")]
+        by_cost = all(appliances[i].kwh for i in runs)
+        score = (lambda i: appliances[i].kwh * items[i]["avg"]) if by_cost else (lambda i: items[i]["avg"])
+        margin = 1.0 if by_cost else 0.5
+        best = idx[0]
+        if runs:
+            low = min(score(i) for i in runs)
+            best = next(i for i in runs if score(i) <= low + margin)
+        for i in idx:
+            items[i]["best"] = i == best
+        items[best]["beats"] = [
+            {"name": items[i]["name"], "avg": items[i]["avg"], "run_p": items[i]["run_p"] if by_cost else None}
+            for i in runs
+            if i != best
+        ]
 
 
 # --- routes ------------------------------------------------------------------

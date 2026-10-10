@@ -188,7 +188,7 @@ function renderHome() {
         (!e.tomorrow_available && hour >= 12 ? ' · tomorrow ~4pm' : '')
       : '';
 
-    $('energy-advice').innerHTML = adviceRows(e.appliances || []);
+    $('energy-advice').innerHTML = adviceRows((e.appliances || []).filter((a) => a.best !== false));
     renderUsageStrip(e.usage || []);
   }
   renderJellyfinCard();
@@ -196,7 +196,7 @@ function renderHome() {
 }
 
 // "Dishwasher eco in 6h" - delay to set on the appliance for its cheapest run.
-function adviceRows(list) {
+function adviceRows(list, all = false) {
   return list.map((a) => {
     if (!a.start) {
       return `<div class="advice-row"><span class="head">${esc(a.name)}</span>
@@ -206,8 +206,14 @@ function adviceRows(list) {
     const vs = a.now_avg != null && a.delay_h > 0 ? ` vs ${p1(a.now_avg)}p now` : '';
     const save = a.saving_p > 0.5 ? ` · save ${a.saving_p.toFixed(0)}p` : '';
     const caveat = a.partial ? ' · may change at 4pm' : '';
-    return `<div class="advice-row band-${a.band}"><span class="head">${esc(a.name)} ${when}</span>
-      <span class="det">${fmtTime(a.start)}–${fmtTime(a.end)} · ${p1(a.avg)}p avg${vs}${save}${caveat}</span></div>`;
+    // "beats eco 11.5p": the other programs of the same machine, by their own word
+    // by the cost of a run when kWh are configured, else by average price
+    const beats = (a.beats || []).map((b) => `${esc(b.name.split(' ').slice(1).join(' ') || b.name)} ${b.run_p != null ? `${b.run_p.toFixed(0)}p a run` : `${p1(b.avg)}p`}`);
+    const run = a.run_p != null && a.beats && a.beats.length ? ` · ${a.run_p.toFixed(0)}p a run` : '';
+    const alt = beats.length ? ` · beats ${beats.join(', ')}` : '';
+    const tag = all && a.best ? ' <span class="pill best">best</span>' : '';
+    return `<div class="advice-row band-${a.band}${all && a.best === false ? ' alt' : ''}"><span class="head">${esc(a.name)} ${when}${tag}</span>
+      <span class="det">${fmtTime(a.start)}–${fmtTime(a.end)} · ${p1(a.avg)}p avg${run}${alt}${vs}${save}${caveat}</span></div>`;
   }).join('');
 }
 const fmtDelay = (h) => (Number.isInteger(h) ? `${h}h` : `${Math.floor(h)}h${String(Math.round((h % 1) * 60)).padStart(2, '0')}`);
@@ -444,7 +450,7 @@ function renderPrices(d, tab) {
   }
   const nowIdx = curStart ? slots.findIndex((s) => s.start === curStart) : -1;
   const appl = tab === 'today' && (state.energy.appliances || []).length
-    ? `<div class="card"><h2>Appliances · delay to set for the cheapest run</h2><div class="advice">${adviceRows(state.energy.appliances)}</div></div>` : '';
+    ? `<div class="card"><h2>Appliances · delay to set for the cheapest run</h2><div class="advice">${adviceRows(state.energy.appliances, true)}</div></div>` : '';
   body.innerHTML = `<div class="card"><div class="tiles">${tiles.join('')}</div></div>${appl}
     <div class="card"><div class="chart-head"><span>p/kWh by half hour · tap a bar</span><span class="readout" id="price-readout"></span></div>
     <div class="chart big-chart" id="price-chart"></div>

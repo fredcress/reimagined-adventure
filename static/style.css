@@ -314,7 +314,9 @@ table.days tr.click:active td { background: var(--surface-2); }
 .advice-row.band-expensive { border-left-color: var(--expensive); }
 .advice-row .head { font-size: 17px; font-weight: 650; white-space: nowrap; }
 .advice-row .head b { font-variant-numeric: tabular-nums; }
-.advice-row .det { font-size: 12px; color: var(--text-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: 1; min-width: 0; text-align: right; }
+.advice-row .det { font-size: 13px; color: var(--text-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: 1; min-width: 0; text-align: right; }
+.advice-row.alt { opacity: .6; }
+.advice-row .pill.best { color: var(--text); border-color: currentColor; font-size: 11px; margin-left: 6px; vertical-align: 2px; }
 
 /* --- timers --- */
 .timer-chips { display: flex; gap: 6px; margin-left: auto; }
