@@ -180,6 +180,7 @@ function renderHome() {
       color: (d) => bandColor(d.band),
       past: (d) => curStart && d.start < curStart,
       lines: [{ v: e.thresholds.cheap }, { v: e.thresholds.expensive }],
+      selected: chart.findIndex((d) => d.start === curStart), // outline the current half hour
       ...priceAxis(chart),
     });
     const hour = +dtf({ hour: '2-digit', hourCycle: 'h23' }).format(new Date());
