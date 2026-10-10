@@ -94,3 +94,29 @@ def test_price_summary_mentions_plunge_and_appliances(monkeypatch):
     assert "plunge" in title
     assert "PLUNGE (paid to use): 13:00-14:00, as low as -2.0p" in message
     assert "Dishwasher" in message or not m.S.appliances
+
+
+def test_seerr_errors_say_who_refused():
+    import asyncio
+
+    import httpx
+    import pytest
+
+    from app.config import load
+    from app.sources.seerr import Seerr
+
+    def handler(request):
+        if "count" in request.url.path:
+            return httpx.Response(403, json={"message": "You do not have permission to access this endpoint."})
+        return httpx.Response(403, text="<html>Access denied</html>", headers={"content-type": "text/html"})
+
+    async def run():
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+            s = Seerr(load(), client)
+            s.base = "http://seerr/api/v1"
+            with pytest.raises(httpx.HTTPStatusError, match="Seerr says: You do not have permission"):
+                await s._get("/request/count")
+            with pytest.raises(httpx.HTTPStatusError, match="probably a proxy"):
+                await s._get("/request")
+
+    asyncio.run(run())

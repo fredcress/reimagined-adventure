@@ -21,6 +21,17 @@ FILTERS = ("all", "pending", "approved", "processing", "available", "unavailable
 TMDB_IMG = "https://image.tmdb.org/t/p/w154"
 
 
+def _check(resp: httpx.Response):
+    """Raise with Seerr's own message, or say the reply came from something else (a proxy)."""
+    if resp.status_code < 400:
+        return
+    try:
+        detail = f"Seerr says: {resp.json().get('message') or resp.reason_phrase}"
+    except ValueError:  # HTML error page: Cloudflare, Authelia, nginx...
+        detail = "not a Seerr reply, probably a proxy in front of it; try the LAN address"
+    raise httpx.HTTPStatusError(f"HTTP {resp.status_code} ({detail})", request=resp.request, response=resp)
+
+
 class Seerr:
     def __init__(self, settings: Settings, client: httpx.AsyncClient):
         self.base = f"{settings.seerr_url}/api/v1"
@@ -30,7 +41,7 @@ class Seerr:
 
     async def _get(self, path: str, params: dict | None = None):
         resp = await self.client.get(f"{self.base}{path}", params=params, headers=self.headers)
-        resp.raise_for_status()
+        _check(resp)
         return resp.json()
 
     async def _media(self, media_type: str, tmdb_id: int) -> dict:
@@ -125,11 +136,6 @@ class Seerr:
         if user_id:
             headers["X-Api-User"] = str(user_id)  # request on behalf of this Seerr user
         resp = await self.client.post(f"{self.base}/request", json=body, headers=headers)
-        if resp.status_code >= 400:
-            try:
-                detail = resp.json().get("message")
-            except ValueError:
-                detail = None
-            raise httpx.HTTPStatusError(detail or f"HTTP {resp.status_code}", request=resp.request, response=resp)
+        _check(resp)
         r = resp.json()
         return {"status": REQUEST_STATUS.get(r.get("status"), "pending")}
