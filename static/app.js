@@ -74,7 +74,7 @@ function barChart(el, items, o) {
   const W = el.clientWidth, H = el.clientHeight;
   if (!W || !H || !items.length) { el.innerHTML = items.length ? '' : '<div class="empty">No data</div>'; return; }
   const axis = o.axis !== false;
-  const padL = axis ? 30 : 2, padR = 2, padT = o.divider ? 16 : 4, padB = 16;
+  const padL = axis ? 34 : 2, padR = 2, padT = o.divider ? 20 : axis ? 10 : 4, padB = 20;
   const vals = items.map(o.value).map((v) => v ?? 0);
   const refs = (o.lines || []).map((l) => l.v);
   let hi = Math.max(...vals, ...refs, 0), lo = Math.min(...vals, 0);
@@ -105,7 +105,7 @@ function barChart(el, items, o) {
       parts.push(`<path${cls} d="${barPath(x + gap / 2, y(0), y(v), bw - gap, 4)}" style="fill:${o.color(d)}"/>`);
     }
     const lab = o.xLabel && o.xLabel(d, i);
-    if (lab) parts.push(`<text x="${x + bw / 2}" y="${H - 3}" text-anchor="middle">${esc(lab)}</text>`);
+    if (lab) parts.push(`<text x="${x + bw / 2}" y="${H - 4}" text-anchor="middle">${esc(lab)}</text>`);
     const div = o.divider && o.divider(d, i);
     if (div) {
       parts.push(`<line class="divider" x1="${x}" x2="${x}" y1="${padT - 4}" y2="${H - padB}"/>`);

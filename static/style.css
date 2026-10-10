@@ -118,11 +118,11 @@ button { font: inherit; color: inherit; background: none; border: 0; cursor: poi
 .dot.normal { background: var(--normal); } .dot.expensive { background: var(--expensive); }
 
 .chart-wrap { flex: 1; min-height: 0; display: flex; flex-direction: column; }
-.chart-head { display: flex; justify-content: space-between; font-size: 12px; color: var(--muted); height: 18px; }
+.chart-head { display: flex; justify-content: space-between; font-size: 13px; color: var(--muted); height: 18px; }
 .readout { color: var(--text); font-variant-numeric: tabular-nums; }
 .chart { flex: 1; min-height: 0; position: relative; }
 .chart svg { position: absolute; inset: 0; width: 100%; height: 100%; }
-.chart text { fill: var(--muted); font-size: 11px; font-family: inherit; }
+.chart text { fill: var(--text-2); font-size: 14px; font-family: inherit; }
 .chart .grid { stroke: var(--line); stroke-width: 1; }
 .chart .thresh { stroke: var(--text-2); stroke-width: 1; stroke-dasharray: 3 4; opacity: .5; }
 .chart .now { stroke: var(--text); stroke-width: 1.5; }
@@ -135,7 +135,7 @@ button { font: inherit; color: inherit; background: none; border: 0; cursor: poi
 .usage-strip .tile { border-left-color: var(--accent); }
 .mini { position: relative; }
 .mini svg { position: absolute; inset: 0; width: 100%; height: 100%; }
-.mini text { fill: var(--muted); font-size: 10px; }
+.mini text { fill: var(--text-2); font-size: 12px; }
 
 /* lists */
 .list { list-style: none; display: flex; flex-direction: column; gap: 2px; min-height: 0; overflow: hidden; }
