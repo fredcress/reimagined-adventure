@@ -66,6 +66,7 @@ class Settings:
     octopus_account: str | None
     octopus_mpan: str | None
     octopus_serial: str | None
+    octopus_api_url: str
 
     jellyfin_url: str | None
     jellyfin_api_key: str | None
@@ -132,6 +133,7 @@ def load() -> Settings:
         octopus_account=_env("OCTOPUS_ACCOUNT"),
         octopus_mpan=_env("OCTOPUS_MPAN"),
         octopus_serial=_env("OCTOPUS_SERIAL"),
+        octopus_api_url=_url("OCTOPUS_API_URL") or "https://api.octopus.energy",
         jellyfin_url=_url("JELLYFIN_URL"),
         jellyfin_api_key=_env("JELLYFIN_API_KEY"),
         seerr_url=_url("SEERR_URL"),

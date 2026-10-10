@@ -146,6 +146,7 @@ Any Pi 3B+/4/5 is fine. A Zero 2 W works but is sluggish.
 | `DEMO` | `1` = fake data for everything |
 | `OCTOPUS_API_KEY`, `OCTOPUS_ACCOUNT` | From the Octopus dashboard → Personal details → API access. The meter, MPAN and tariff are discovered from the account. |
 | `OCTOPUS_MPAN`, `OCTOPUS_SERIAL` | Only if you have several import meters |
+| `OCTOPUS_API_URL` | Optional API host (default `https://api.octopus.energy`; `https://api.oegb-kraken.energy` also works) |
 | `JELLYFIN_URL`, `JELLYFIN_API_KEY` | Dashboard → API Keys |
 | `SEERR_URL`, `SEERR_API_KEY` | Settings → General. Works with Jellyseerr/Overseerr too. |
 | `PRICE_CHEAP`, `PRICE_EXPENSIVE` | Colour thresholds in p/kWh (default 15 / 25). Prices ≤ 0 show as "plunge". |

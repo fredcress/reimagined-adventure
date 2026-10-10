@@ -9,8 +9,6 @@ import httpx
 from ..agile import Rate, Reading, parse_rates, parse_readings
 from ..config import Settings
 
-BASE = "https://api.octopus.energy/v1"
-
 # E-1R-AGILE-24-10-01-C -> AGILE-24-10-01
 TARIFF_RE = re.compile(r"^E-1R-(?P<product>.+)-[A-P]$")
 
@@ -38,6 +36,7 @@ class Octopus:
         self.s = settings
         self.client = client
         self.auth = (settings.octopus_api_key or "", "")
+        self.base = f"{settings.octopus_api_url}/v1"
         self.meter: Meter | None = None
 
     async def _get_all(self, url: str, params: dict, auth: bool = False) -> list[dict]:
@@ -58,7 +57,7 @@ class Octopus:
     async def discover(self) -> Meter:
         """Find the import electricity meter and its tariff history."""
         resp = await self.client.get(
-            f"{BASE}/accounts/{self.s.octopus_account}/", auth=self.auth
+            f"{self.base}/accounts/{self.s.octopus_account}/", auth=self.auth
         )
         resp.raise_for_status()
         account = resp.json()
@@ -99,7 +98,7 @@ class Octopus:
         rates: list[Rate] = []
         for a in meter.agreements_between(start, end):
             url = (
-                f"{BASE}/products/{a.product_code}/electricity-tariffs/"
+                f"{self.base}/products/{a.product_code}/electricity-tariffs/"
                 f"{a.tariff_code}/{kind}/"
             )
             rows = await self._get_all(
@@ -122,7 +121,7 @@ class Octopus:
     async def consumption(self, start: datetime, end: datetime) -> list[Reading]:
         meter = self.meter or await self.discover()
         rows = await self._get_all(
-            f"{BASE}/electricity-meter-points/{meter.mpan}/meters/{meter.serial}/consumption/",
+            f"{self.base}/electricity-meter-points/{meter.mpan}/meters/{meter.serial}/consumption/",
             {
                 "period_from": start.isoformat(),
                 "period_to": end.isoformat(),
