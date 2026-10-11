@@ -21,12 +21,44 @@ KIOSK_USER="${SUDO_USER:-pi}"
 KIOSK_UID="$(id -u "$KIOSK_USER")"
 HERE="$(cd "$(dirname "$0")" && pwd)"
 
+# Under 1 GB of RAM (e.g. Pi Zero 2 W, 512 MB): compressed swap in RAM, lighter
+# Chromium, and a nightly browser restart. Bigger Pis are left alone.
+MEM_MB="$(awk '/^MemTotal:/ {print int($2 / 1024)}' /proc/meminfo)"
+LOW_MEM=0
+if (( MEM_MB < 1024 )); then LOW_MEM=1; fi
+LOW_MEM_FLAGS=""
+if (( LOW_MEM )); then
+  LOW_MEM_FLAGS="--enable-low-end-device-mode --renderer-process-limit=1 --disk-cache-size=16777216 --disable-background-networking --disable-component-update --disable-sync --js-flags=--max-old-space-size=128"
+fi
+
 echo "==> Installing cage + chromium"
 apt-get update
 apt-get install -y --no-install-recommends cage curl fonts-dejavu-core python3
 # Screen power control under Wayland: wlopm if packaged, else wlr-randr
 apt-get install -y --no-install-recommends wlopm || apt-get install -y --no-install-recommends wlr-randr
 if [[ -n "$PIR_GPIO" ]]; then apt-get install -y --no-install-recommends python3-gpiozero; fi
+
+if (( LOW_MEM )); then
+  echo "==> ${MEM_MB} MB RAM: setting up compressed swap in RAM (zram)"
+  if swapon --show=NAME --noheadings 2>/dev/null | grep -q zram; then
+    echo "    zram swap already active (newer Pi OS ships it), leaving it as is"
+  else
+    apt-get install -y --no-install-recommends zram-tools
+    cat >/etc/default/zramswap <<EOF
+# kitchen monitor: compressed swap in RAM, about half the RAM, used before any disk swap
+ALGO=zstd
+PERCENT=50
+PRIORITY=100
+EOF
+    systemctl enable zramswap.service
+    systemctl restart zramswap.service || true
+  fi
+  # Swapping to the SD card is slow and wears it out; zram replaces it
+  if systemctl list-unit-files dphys-swapfile.service >/dev/null 2>&1; then
+    dphys-swapfile swapoff 2>/dev/null || true
+    systemctl disable dphys-swapfile.service 2>/dev/null || true
+  fi
+fi
 if apt-cache show chromium >/dev/null 2>&1; then
   apt-get install -y --no-install-recommends chromium
 else
@@ -72,7 +104,8 @@ ExecStart=/usr/bin/cage -d -- $CHROMIUM \\
   --disable-session-crashed-bubble --disable-features=Translate \\
   --overscroll-history-navigation=0 --disable-pinch \\
   --password-store=basic --check-for-update-interval=31536000 \\
-  --autoplay-policy=no-user-gesture-required \\
+  --autoplay-policy=no-user-gesture-required \\${LOW_MEM_FLAGS:+
+  $LOW_MEM_FLAGS \\}
   --user-data-dir=/tmp/kiosk-chromium
 Restart=always
 RestartSec=5
@@ -105,9 +138,33 @@ RestartSec=10
 WantedBy=graphical.target
 EOF
 
+if (( LOW_MEM )); then
+  echo "==> Nightly browser restart at 04:00 (clears Chromium's slow memory growth)"
+  cat >/etc/systemd/system/kiosk-restart.service <<EOF
+[Unit]
+Description=Restart the kitchen monitor kiosk browser
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/systemctl restart kiosk.service
+EOF
+  cat >/etc/systemd/system/kiosk-restart.timer <<EOF
+[Unit]
+Description=Restart the kitchen monitor kiosk browser every night
+
+[Timer]
+OnCalendar=*-*-* 04:00
+RandomizedDelaySec=5min
+
+[Install]
+WantedBy=timers.target
+EOF
+fi
+
 systemctl daemon-reload
 systemctl disable getty@tty1.service || true
 systemctl enable kiosk.service kiosk-display.service
+if (( LOW_MEM )); then systemctl enable kiosk-restart.timer; fi
 systemctl set-default graphical.target
 
 cat <<EOF
@@ -119,6 +176,7 @@ Once it looks right, make the SD card read-only so power cuts can't corrupt it:
 (To change anything later: sudo raspi-config nonint do_overlayfs 1, reboot, edit, re-enable.)
 
 Logs: journalctl -u kiosk -u kiosk-display -f
+Memory: free -m   ("available" above ~80 MB is comfortable)
 Screen schedule: set NIGHT_START/NIGHT_END and SCREEN_OFF_AT_NIGHT=1 in the server's .env.
 Timings: sudo systemctl edit kiosk-display  (WAKE_MINUTES, PIR_IDLE_MINUTES)
 EOF

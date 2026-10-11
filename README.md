@@ -137,7 +137,10 @@ and adds a systemd service that waits for the server and then opens the page
 fullscreen. Once you're happy, enable the read-only overlay filesystem as the
 script prints.
 
-Any Pi 3B+/4/5 is fine. A Zero 2 W works but is sluggish.
+Any Pi 3B+/4/5 is fine. A Zero 2 W (512 MB) works but is sluggish; on any Pi
+with under 1 GB of RAM the script also turns on compressed swap in RAM (zram,
+instead of swapping to the SD card), starts Chromium in low-memory mode, and
+restarts the browser every night at 04:00. Check headroom with `free -m`.
 
 ## Configuration (`.env`)
 
