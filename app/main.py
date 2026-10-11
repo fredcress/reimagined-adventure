@@ -292,6 +292,23 @@ def day_slots(unit: list[agile.Rate], d: date) -> list[agile.Rate]:
     )
 
 
+def typical_price(unit: list[agile.Rate], before: date, days: int = 30) -> float | None:
+    """Mean daily average unit price over the complete days before `before`."""
+    avgs = []
+    for i in range(1, days + 1):
+        d = before - timedelta(days=i)
+        slots = day_slots(unit, d)
+        if slots and len(slots) == agile.day_slot_count(d, TZ):
+            avgs.append(sum(s.price for s in slots) / len(slots))
+    return round(sum(avgs) / len(avgs), 2) if len(avgs) >= 3 else None
+
+
+def typical_paid(days: list[dict], exclude: str | None = None) -> float | None:
+    """Your usual average price paid per kWh, over complete usage days."""
+    paid = [d["avg_price"] for d in days if d["complete"] and d["avg_price"] is not None and d["date"] != exclude]
+    return round(sum(paid) / len(paid), 2) if len(paid) >= 3 else None
+
+
 def usage_days() -> list[dict]:
     rates = store["rates"].data or {"unit": [], "standing": []}
     return agile.daily_usage(store["usage"].data or [], rates["unit"], rates["standing"], TZ)
@@ -323,6 +340,7 @@ def energy_overview(now: datetime) -> dict:
         next=slot_json(upcoming[1]) if len(upcoming) > 1 else None,
         chart=[slot_json(s) for s in chart],
         today=stats(day_slots(unit, today)),
+        typical_avg=typical_price(unit, today),
         tomorrow_available=tomorrow_complete,
         windows=[
             {"hours": h, **slot_json(w)}
@@ -445,7 +463,12 @@ async def energy_prices(day: date | None = None):
         raise HTTPException(503, "No price data yet")
     d = day or datetime.now(TZ).date()
     slots = day_slots(rates["unit"], d)
-    return {"date": d.isoformat(), "slots": [slot_json(s) for s in slots], "stats": stats(slots)}
+    return {
+        "date": d.isoformat(),
+        "slots": [slot_json(s) for s in slots],
+        "stats": stats(slots),
+        "typical_avg": typical_price(rates["unit"], min(d, datetime.now(TZ).date())),
+    }
 
 
 @app.get("/api/energy/usage")
@@ -472,8 +495,18 @@ async def energy_usage_day(day: date):
                 "cost_p": round(r.kwh * rate.price, 2) if rate else None,
             }
         )
-    summary = next((d for d in usage_days() if d["date"] == day.isoformat()), None)
-    return {"date": day.isoformat(), "slots": rows, "summary": summary}
+    days = usage_days()
+    summary = next((d for d in days if d["date"] == day.isoformat()), None)
+    dates = [d["date"] for d in days]
+    i = dates.index(day.isoformat()) if day.isoformat() in dates else None
+    return {
+        "date": day.isoformat(),
+        "slots": rows,
+        "summary": summary,
+        "typical_paid": typical_paid(days, exclude=day.isoformat()),
+        "prev": dates[i - 1] if i else None,
+        "next": dates[i + 1] if i is not None and i + 1 < len(dates) else None,
+    }
 
 
 JELLYFIN_TYPES = {"all": "Movie,Episode", "movies": "Movie", "episodes": "Episode"}

@@ -123,12 +123,44 @@ function barChart(el, items, o) {
     items.forEach((_, i) => parts.push(`<rect class="hit" data-i="${i}" x="${padL + i * bw}" y="0" width="${bw}" height="${H}"/>`));
   }
   el.innerHTML = `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">${parts.join('')}</svg>`;
+  if (o.onPreview) return scrub(el.firstChild, items.length, { padL, padT, bw, W, H, padB }, o);
   if (o.onSelect) {
     el.firstChild.addEventListener('pointerdown', (e) => {
       const hit = e.target.closest('.hit');
       if (hit) o.onSelect(+hit.dataset.i);
     });
   }
+}
+
+// Press and slide along the bars to preview (outline + o.onPreview(i)); let go to
+// pick (o.onSelect). Sliding up/down still scrolls the page and cancels.
+function scrub(svg, n, g, o) {
+  const NS = 'http://www.w3.org/2000/svg';
+  const sel = document.createElementNS(NS, 'rect');
+  sel.setAttribute('class', 'sel');
+  sel.setAttribute('rx', 3);
+  sel.setAttribute('y', g.padT);
+  sel.setAttribute('width', g.bw);
+  sel.setAttribute('height', g.H - g.padT - g.padB);
+  sel.style.display = 'none';
+  svg.appendChild(sel);
+  svg.style.touchAction = 'pan-y';
+  let cur = null;
+  const at = (e) => {
+    const r = svg.getBoundingClientRect();
+    const x = ((e.clientX - r.left) / r.width) * g.W;
+    return Math.max(0, Math.min(n - 1, Math.floor((x - g.padL) / g.bw)));
+  };
+  const show = (i) => {
+    cur = i;
+    sel.style.display = i == null ? 'none' : '';
+    if (i != null) sel.setAttribute('x', g.padL + i * g.bw);
+    o.onPreview(i);
+  };
+  svg.addEventListener('pointerdown', (e) => { svg.setPointerCapture(e.pointerId); show(at(e)); });
+  svg.addEventListener('pointermove', (e) => { if (cur != null) { const i = at(e); if (i !== cur) show(i); } });
+  svg.addEventListener('pointerup', () => { const i = cur; if (i != null) { cur = null; o.onSelect(i); } });
+  svg.addEventListener('pointercancel', () => show(null));
 }
 
 // x labels every 3 hours, divider at midnight
@@ -155,6 +187,16 @@ function tile(label, value, sub, band, big) {
     <div class="label">${label}</div><div class="value">${value}</div><div class="sub">${sub || '&nbsp;'}</div></div>`;
 }
 const priceVal = (p) => `${p1(p)}<small>p</small>`;
+// "a bit pricier than usual" etc: a day's average against the usual (30-day) average
+function verdict(avg, usual) {
+  if (avg == null || usual == null || usual <= 0) return null;
+  const pct = Math.round(((avg - usual) / usual) * 100);
+  const text = pct >= 25 ? 'much pricier than usual' : pct >= 10 ? 'a bit pricier than usual'
+    : pct <= -25 ? 'much cheaper than usual' : pct <= -10 ? 'cheaper than usual' : 'about usual';
+  const cls = pct >= 10 ? 'hi' : pct <= -10 ? 'lo' : 'mid';
+  return { text, cls, pct, html: `<span class="verdict ${cls}">${text}</span>` };
+}
+const vsUsual = (v, usual, what = 'usual') => (v ? `${v.pct > 0 ? '+' : ''}${v.pct}% vs ${what} ${p1(usual)}p` : '');
 const bandSub = (band, extra) => `<span class="dot ${band}"></span>${BAND_LABEL[band] || ''}${extra ? ` · ${extra}` : ''}`;
 
 // --- home ----------------------------------------------------------------------
@@ -187,8 +229,9 @@ function renderHome() {
       ...priceAxis(chart),
     });
     const hour = +dtf({ hour: '2-digit', hourCycle: 'h23' }).format(new Date());
-    $('energy-readout').textContent = e.today
-      ? `Today ${p1(e.today.min)} / ${p1(e.today.avg)} / ${p1(e.today.max)}p` +
+    const tv = e.today && verdict(e.today.avg, e.typical_avg);
+    $('energy-readout').innerHTML = e.today
+      ? `Today ${p1(e.today.min)} / ${p1(e.today.avg)} / ${p1(e.today.max)}p` + (tv ? ` · ${tv.html}` : '') +
         (!e.tomorrow_available && hour >= 12 ? ' · tomorrow ~4pm' : '')
       : '';
 
@@ -444,7 +487,7 @@ function renderPrices(d, tab) {
   const band = (p) => (p <= 0 ? 'plunge' : p < th.cheap ? 'cheap' : p < th.expensive ? 'normal' : 'expensive');
   const tiles = [
     tile('Lowest', priceVal(d.stats.min), '', band(d.stats.min)),
-    tile('Average', priceVal(d.stats.avg), '', band(d.stats.avg)),
+    tile('Average', priceVal(d.stats.avg), (() => { const v = verdict(d.stats.avg, d.typical_avg); return v ? `${v.html} · ${vsUsual(v, d.typical_avg, '30-day')}` : ''; })(), band(d.stats.avg)),
     tile('Highest', priceVal(d.stats.max), '', band(d.stats.max)),
   ];
   const future = curStart ? slots.filter((s) => s.start >= curStart) : slots;
@@ -488,7 +531,7 @@ function renderUsage(d) {
       ${tile(`Last ${days.length} days`, `${sum(days, 'kwh').toFixed(0)}<small>kWh</small>`, gbp(sum(days, 'cost_p')))}
       ${tile('Avg per day', gbp(sum(days, 'cost_p') / days.length), `${(sum(days, 'kwh') / days.length).toFixed(1)} kWh`)}
     </div></div>
-    <div class="card"><div class="chart-head"><span>Daily cost, £ · tap a day</span><span class="readout" id="usage-readout"></span></div>
+    <div class="card"><div class="chart-head"><span>Daily cost, £ · press and slide, let go to open</span><span class="readout" id="usage-readout"></span></div>
     <div class="chart" style="height:200px" id="usage-chart"></div></div>
     <div class="card"><table class="days"><thead><tr><th>Day</th><th>kWh</th><th>Avg p/kWh</th><th>Standing</th><th>Cost</th></tr></thead><tbody>
     ${[...days].reverse().map((x) => `<tr class="click" data-day="${x.date}"><td>${fmtDay(dayDate(x.date))}${x.complete ? '' : ' <small class="note">partial</small>'}</td>
@@ -499,6 +542,10 @@ function renderUsage(d) {
     value: (x) => x.cost_p / 100,
     color: () => 'var(--accent)',
     xLabel: (x, i) => (i % 3 === 0 ? dtf({ day: 'numeric' }).format(dayDate(x.date)) : null),
+    onPreview: (i) => {
+      const x = days[i];
+      $('usage-readout').innerHTML = x ? `<b>${fmtDay(dayDate(x.date))}</b> · ${x.kwh.toFixed(1)} kWh · ${gbp(x.cost_p)}` : '';
+    },
     onSelect: (i) => open(days[i].date),
   });
   body.querySelectorAll('tr[data-day]').forEach((tr) => tr.addEventListener('click', () => open(tr.dataset.day)));
@@ -509,16 +556,25 @@ function renderUsageDay(d) {
   const th = state.energy.thresholds;
   const band = (p) => (p == null ? null : p <= 0 ? 'plunge' : p < th.cheap ? 'cheap' : p < th.expensive ? 'normal' : 'expensive');
   const s = d.summary;
-  body.innerHTML = `<div class="card"><div class="tiles">
-      ${tile(fmtDay(dayDate(d.date)), `${s ? s.kwh.toFixed(1) : '–'}<small>kWh</small>`, s && !s.complete ? 'partial day' : '')}
+  const v = s && verdict(s.avg_price, d.typical_paid);
+  const navBtn = (day, label) => (day
+    ? `<button class="step" data-day="${day}">${label}</button>` : '<span class="step off"></span>');
+  body.innerHTML = `<div class="card daynav">
+      ${navBtn(d.prev, `‹<span class="nl"> ${d.prev ? esc(fmtDay(dayDate(d.prev))) : ''}</span>`)}
+      <div class="dayname">${esc(dtf({ weekday: 'long', day: 'numeric', month: 'long' }).format(dayDate(d.date)))}</div>
+      ${navBtn(d.next, `<span class="nl">${d.next ? esc(fmtDay(dayDate(d.next))) : ''} </span>›`)}
+    </div>
+    <div class="card"><div class="tiles">
+      ${tile('Used', `${s ? s.kwh.toFixed(1) : '–'}<small>kWh</small>`, s && !s.complete ? 'partial day' : '')}
       ${tile('Cost', gbp(s && s.cost_p), s ? `incl. ${gbp(s.standing_p)} standing` : '')}
-      ${tile('Avg price paid', priceVal(s && s.avg_price), 'weighted by use')}
+      ${tile('Avg price paid', priceVal(s && s.avg_price), v ? `${v.html} · ${vsUsual(v, d.typical_paid)}` : 'weighted by use')}
     </div></div>
     <div class="card"><div class="chart-head"><span>kWh per half hour, coloured by price · tap a bar</span><span class="readout" id="day-readout"></span></div>
     <div class="chart big-chart" id="day-chart"></div>
     <div class="legend">${['plunge', 'cheap', 'normal', 'expensive'].map((b) => `<span><span class="dot ${b}"></span>${BAND_LABEL[b]}</span>`).join('')}</div></div>
     <button class="more" id="back-usage">‹ All days</button>`;
   $('back-usage').addEventListener('click', () => { location.hash = '#/energy/usage'; });
+  body.querySelectorAll('.daynav [data-day]').forEach((b) => b.addEventListener('click', () => { location.hash = `#/energy/usage/${b.dataset.day}`; }));
   const draw = (sel) => barChart($('day-chart'), d.slots, {
     value: (x) => x.kwh,
     color: (x) => bandColor(band(x.price)),

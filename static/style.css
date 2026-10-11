@@ -450,3 +450,19 @@ table.days tr.click:active td { background: var(--surface-2); }
   .alarm-actions { flex-wrap: wrap; justify-content: center; }
   .alarm .big-btn { height: 64px; padding: 0 24px; font-size: 20px; }
 }
+
+/* price verdicts and day navigation */
+.verdict { font-weight: 600; }
+.verdict.hi { color: #ff8a8a; }
+.verdict.lo { color: #5bd65b; }
+.verdict.mid { color: var(--text-2); }
+.daynav { flex-direction: row !important; align-items: center; gap: 8px; }
+.daynav .step { min-width: 110px; padding: 0 12px; display: grid; place-items: center; }
+.daynav .step.off { visibility: hidden; }
+.dayname { flex: 1; text-align: center; font-size: 20px; font-weight: 650; }
+@media (max-width: 760px) {
+  .daynav .step { min-width: 52px; flex: none; padding: 0; font-size: 22px; }
+  .daynav .nl { display: none; }
+  .dayname { font-size: 16px; }
+}
+.tile .sub:has(.verdict) { white-space: normal; }

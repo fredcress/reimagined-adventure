@@ -75,3 +75,16 @@ def test_ntfy_payload():
     assert seen["url"] == "https://ntfy.example"
     assert seen["auth"] == "Bearer tk_123"
     assert seen["body"] == {"topic": "kitchen", "title": "Title", "message": "Body", "priority": 4, "tags": ["zap"]}
+
+
+def test_usual_prices_and_day_navigation(client):
+    s = client.get("/api/state").json()
+    assert s["energy"]["typical_avg"] > 0
+    assert client.get("/api/energy/prices").json()["typical_avg"] > 0
+    days = client.get("/api/energy/usage").json()["days"]
+    mid = days[len(days) // 2]["date"]
+    d = client.get(f"/api/energy/usage/{mid}").json()
+    assert d["typical_paid"] > 0
+    assert d["prev"] < mid < d["next"]
+    first = client.get(f"/api/energy/usage/{days[0]['date']}").json()
+    assert first["prev"] is None
