@@ -8,6 +8,9 @@ const IDLE_MS = 90_000;
 const NIGHT_WAKE_MS = 120_000;
 
 const $ = (id) => document.getElementById(id);
+// Phones get a scrolling one-column layout (style.css), the system keyboard, and
+// none of the kiosk behaviour (idle return to home, night clock).
+const PHONE = window.matchMedia('(max-width: 760px)');
 let state = null;
 let build = null;
 let tz = 'Europe/London';
@@ -577,6 +580,7 @@ const KEY_ROWS = ['1234567890', 'qwertyuiop', 'asdfghjkl', 'zxcvbnm'];
 
 function renderSeerrSearch(seq) {
   const body = $('detail-body');
+  if (PHONE.matches) return renderSeerrSearchPhone(seq, body);
   body.innerHTML = `<div class="card">
       <button class="searchbox" id="sbox"><span id="sq">${esc(seerrQuery) || '<span class="note">Tap to type a film or series…</span>'}</span></button>
       <div class="kbd" id="kbd" ${seerrKeyboard ? '' : 'hidden'}>
@@ -608,6 +612,27 @@ function renderSeerrSearch(seq) {
     update();
   });
   if (seerrQuery && !seerrKeyboard) run();
+}
+
+function renderSeerrSearchPhone(seq, body) {
+  body.innerHTML = `<div class="card"><form id="sform"><input class="searchbox" id="sinput" type="search"
+      enterkeyhint="search" autocomplete="off" maxlength="60" placeholder="Film or series…" value="${esc(seerrQuery)}"></form></div>
+    <div class="card" id="disc" ${seerrQuery ? '' : 'hidden'}></div>`;
+  const run = () => {
+    if (!seerrQuery.trim()) return;
+    $('disc').hidden = false;
+    $('disc').innerHTML = '<div class="empty">Searching…</div>';
+    getJSON(`/api/seerr/search?q=${encodeURIComponent(seerrQuery.trim())}`)
+      .then((d) => { if (seq === renderSeq) showDiscover($('disc'), d.results); })
+      .catch((e) => { if (seq === renderSeq) $('disc').innerHTML = `<div class="empty">Search failed: ${esc(e.message)}</div>`; });
+  };
+  $('sform').addEventListener('submit', (e) => {
+    e.preventDefault();
+    seerrQuery = $('sinput').value;
+    $('sinput').blur(); // close the keyboard to show results
+    run();
+  });
+  if (seerrQuery) run();
 }
 
 function openDiscoverSheet(it) {
@@ -837,9 +862,9 @@ function tickClock() {
   $('time').textContent = dtf({ hour: '2-digit', minute: '2-digit' }).format(now);
   $('date').textContent = dtf({ weekday: 'short', day: 'numeric', month: 'short' }).format(now);
   $('night-time').textContent = $('time').textContent;
-  const night = state && state.night && Date.now() > nightWakeUntil && Date.now() - lastTouch > 30_000;
+  const night = !PHONE.matches && state && state.night && Date.now() > nightWakeUntil && Date.now() - lastTouch > 30_000;
   $('night').hidden = !night;
-  if (Date.now() - lastTouch > IDLE_MS) { closeSheet(); if (route().view !== 'home') location.hash = ''; }
+  if (!PHONE.matches && Date.now() - lastTouch > IDLE_MS) { closeSheet(); if (route().view !== 'home') location.hash = ''; }
   tickTimers();
 }
 
@@ -884,7 +909,13 @@ $('alarm').addEventListener('click', (e) => {
 document.addEventListener('pointerdown', () => { if (!audioCtx) try { audioCtx = new AudioContext(); } catch (e) { /* none */ } }, { once: true });
 $('night').addEventListener('click', () => { nightWakeUntil = Date.now() + NIGHT_WAKE_MS; $('night').hidden = true; });
 window.addEventListener('hashchange', showRoute);
-window.addEventListener('resize', () => { if (state) (route().view === 'home' ? renderHome() : renderDetail(route(), true)); });
+// Redraw charts when the width changes; ignore phone address bars sliding in/out.
+let lastWidth = window.innerWidth;
+window.addEventListener('resize', () => {
+  if (!state || window.innerWidth === lastWidth) return;
+  lastWidth = window.innerWidth;
+  route().view === 'home' ? renderHome() : renderDetail(route(), true);
+});
 
 setInterval(tickClock, 1000);
 tickClock();
