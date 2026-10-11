@@ -152,7 +152,7 @@ Any Pi 3B+/4/5 is fine. A Zero 2 W works but is sluggish.
 | `PRICE_CHEAP`, `PRICE_EXPENSIVE` | Colour thresholds in p/kWh (default 15 / 25). Prices ≤ 0 show as "plunge". |
 | `CHEAPEST_WINDOWS` | Window lengths in hours for the home tiles (default `1,3`) |
 | `USAGE_DAYS` | Days in the home usage mini-chart (default 7) |
-| `APPLIANCES` | `"Dishwasher eco=4:30,Dishwasher quick=2:30"`: name=cycle length, optional `@kWh` per cycle to show the saving |
+| `APPLIANCES` | `"Dishwasher eco=4:30@0.85,Dishwasher quick=2:30@1.15,Clothes 40 + dry=5:15@3.5 finish"`: name=cycle length, optional `@kWh` per cycle (compare by cost per run, show savings), optional ` finish` for timers that set the end time. Programmes sharing a first word are alternatives: home shows the better one |
 | `APPLIANCE_DELAY_STEP` | Hours per press of the delay-start button (default 1) |
 | `TIMER_LABELS` | Quick labels on the Timers screen |
 | `NIGHT_START`, `NIGHT_END` | Night clock, `HH:MM`. Leave blank to disable. |

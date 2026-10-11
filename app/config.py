@@ -29,6 +29,7 @@ class Appliance:
     name: str
     hours: float
     kwh: float | None  # per cycle; enables a £ saving estimate
+    finish: bool = False  # timer sets the end time ("Finish in"), not the start delay
 
 
 def _duration(text: str) -> float:
@@ -40,18 +41,26 @@ def _duration(text: str) -> float:
 
 
 def _appliances(raw: str | None) -> tuple[Appliance, ...]:
-    """'Dishwasher eco=4:30@0.9, Dishwasher quick=2:30' -> Appliances."""
+    """'Dishwasher eco=4:30@0.9, Dishwasher quick=2:30, Washer=2:45@1 finish' -> Appliances.
+
+    A trailing 'finish' means the machine's timer sets when it ends ("Finish in"),
+    as on Siemens washing machines, rather than how long to wait before starting.
+    """
     out = []
     for part in (raw or "").split(","):
         name, sep, spec = part.strip().rpartition("=")
         if not sep or not name.strip():
             continue
+        spec, finish = spec.strip(), False
+        if spec.lower().endswith("finish"):
+            spec, finish = spec[: -len("finish")].strip(), True
         duration, _, kwh = spec.partition("@")
         out.append(
             Appliance(
                 name=name.strip(),
                 hours=_duration(duration.strip()),
                 kwh=float(kwh.lower().removesuffix("kwh")) if kwh.strip() else None,
+                finish=finish,
             )
         )
     return tuple(out)

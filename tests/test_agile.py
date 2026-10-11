@@ -166,3 +166,26 @@ def test_pick_programs_prefers_cheaper_run_per_machine():
     items = [{"name": "Dishwasher eco"}, {"name": "Dishwasher quick", "start": "x", "avg": 20.0, "run_p": 24.0}]
     pick_programs(items, kwh)
     assert items[1]["best"]
+
+
+def test_best_start_finish_in_timer():
+    from app.agile import best_start
+    from app.config import _appliances
+
+    # 30p for 3h, then 5p for 3h, then 30p
+    slots = slots_from([30] * 6 + [5] * 6 + [30] * 6)
+    now = slots[0].start
+    horizon = slots[-1].end
+    # A 2h45 cycle on a "Finish in" timer can start now, or at 15 min, 1h15, 2h15...
+    b = best_start(slots, now, timedelta(hours=2, minutes=45), timedelta(hours=1), horizon, finish=True)
+    assert b["delay"] == timedelta(hours=3, minutes=15)  # finish in 6h: 3h15 -> 6h00, all cheap
+    assert (b["delay"] + timedelta(hours=2, minutes=45)) % timedelta(hours=1) == timedelta(0)
+    # whole-hour cycles: the first timer step after "now" is one step, not zero
+    b = best_start(slots, now, timedelta(hours=3), timedelta(hours=1), horizon, finish=True)
+    assert b["delay"] == timedelta(hours=3)
+
+    a = _appliances("Washer 40 + dry=5:15@3.5 finish, Dishwasher=4:30@0.85")
+    assert [(x.name, x.hours, x.kwh, x.finish) for x in a] == [
+        ("Washer 40 + dry", 5.25, 3.5, True),
+        ("Dishwasher", 4.5, 0.85, False),
+    ]

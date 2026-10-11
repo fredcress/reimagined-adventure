@@ -466,3 +466,13 @@ table.days tr.click:active td { background: var(--surface-2); }
   .dayname { font-size: 16px; }
 }
 .tile .sub:has(.verdict) { white-space: normal; }
+
+/* appliance rows: "Finish in" wording; compact two-column grid on home for 3+ machines */
+.advice-row .how { font-weight: 500; color: var(--text-2); font-size: 15px; }
+.advice-row .short { display: none; }
+.advice.compact { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; }
+.advice.compact .advice-row { flex-direction: column; align-items: stretch; gap: 0; padding: 4px 10px; }
+.advice.compact .head { font-size: 15px; overflow: hidden; text-overflow: ellipsis; }
+.advice.compact .det { display: none; }
+.advice.compact .short { display: block; font-size: 12px; color: var(--text-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+@media (max-width: 760px) { .advice.compact { grid-template-columns: 1fr; } }

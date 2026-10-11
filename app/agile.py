@@ -185,21 +185,29 @@ def avg_price(rates: list[Rate], start: datetime, end: datetime) -> float | None
 
 
 def best_start(
-    rates: list[Rate], now: datetime, duration: timedelta, step: timedelta, horizon: datetime
+    rates: list[Rate],
+    now: datetime,
+    duration: timedelta,
+    step: timedelta,
+    horizon: datetime,
+    finish: bool = False,
 ) -> dict | None:
     """Cheapest time to start a fixed-length cycle, in `step` increments from now.
 
-    Steps match an appliance's delay-start button (e.g. whole hours). Only
-    cycles that finish by `horizon` (end of published prices) are considered.
+    Steps match an appliance's timer button (e.g. whole hours). With `finish`
+    the timer sets the end time instead ("Finish in 8h"), so the possible starts
+    are now, or (whole steps - duration) from now. Only cycles that finish by
+    `horizon` (end of published prices) are considered.
     """
     now = now.astimezone(timezone.utc)
+    first = ((-duration) % step or step) if finish else step  # first delay after "now"
     best, now_avg, k = None, None, 0
-    while (start := now + k * step) + duration <= horizon:
+    while (start := now + (delay := timedelta(0) if k == 0 else first + (k - 1) * step)) + duration <= horizon:
         avg = avg_price(rates, start, start + duration)
         if k == 0:
             now_avg = avg
         if avg is not None and (best is None or avg < best["avg"] - 1e-9):
-            best = {"start": start, "end": start + duration, "delay": k * step, "avg": avg}
+            best = {"start": start, "end": start + duration, "delay": delay, "avg": avg}
         k += 1
     if best:
         best["now_avg"] = now_avg

@@ -235,7 +235,9 @@ function renderHome() {
         (!e.tomorrow_available && hour >= 12 ? ' · tomorrow ~4pm' : '')
       : '';
 
-    $('energy-advice').innerHTML = adviceRows((e.appliances || []).filter((a) => a.best !== false));
+    const shown = (e.appliances || []).filter((a) => a.best !== false);
+    $('energy-advice').innerHTML = adviceRows(shown);
+    $('energy-advice').classList.toggle('compact', shown.length > 2); // two columns, shorter text
     renderUsageStrip(e.usage || []);
   }
   renderJellyfinCard();
@@ -249,7 +251,9 @@ function adviceRows(list, all = false) {
       return `<div class="advice-row"><span class="head">${esc(a.name)}</span>
         <span class="det">${a.partial ? "won't fit before tonight's prices end - tomorrow's due ~4pm" : 'no price data'}</span></div>`;
     }
-    const when = a.delay_h === 0 ? '<b>start now</b>' : `in <b>${fmtDelay(a.delay_h)}</b>`;
+    // "Finish in" machines (Siemens washers): say what to set on the timer
+    const when = a.delay_h === 0 ? '<b>start now</b>'
+      : a.finish ? `<span class="how">Finish in</span> <b>${fmtDelay(a.finish_in_h)}</b>` : `in <b>${fmtDelay(a.delay_h)}</b>`;
     const vs = a.now_avg != null && a.delay_h > 0 ? ` vs ${p1(a.now_avg)}p now` : '';
     const save = a.saving_p > 0.5 ? ` · save ${a.saving_p.toFixed(0)}p` : '';
     const caveat = a.partial ? ' · may change at 4pm' : '';
@@ -258,9 +262,10 @@ function adviceRows(list, all = false) {
     const beats = (a.beats || []).map((b) => `${esc(b.name.split(' ').slice(1).join(' ') || b.name)} ${b.run_p != null ? `${b.run_p.toFixed(0)}p a run` : `${p1(b.avg)}p`}`);
     const run = a.run_p != null && a.beats && a.beats.length ? ` · ${a.run_p.toFixed(0)}p a run` : '';
     const alt = beats.length ? ` · beats ${beats.join(', ')}` : '';
-    const tag = all && a.best ? ' <span class="pill best">best</span>' : '';
+    const tag = all && a.best && (a.beats || []).length ? ' <span class="pill best">best</span>' : '';
     return `<div class="advice-row band-${a.band}${all && a.best === false ? ' alt' : ''}"><span class="head">${esc(a.name)} ${when}${tag}</span>
-      <span class="det">${fmtTime(a.start)}–${fmtTime(a.end)} · ${p1(a.avg)}p avg${run}${alt}${vs}${save}${caveat}</span></div>`;
+      <span class="det">${fmtTime(a.start)}–${fmtTime(a.end)} · ${p1(a.avg)}p avg${run}${alt}${vs}${save}${caveat}</span>
+      <span class="short">${fmtTime(a.start)}–${fmtTime(a.end)} · ${p1(a.avg)}p${a.saving_p > 0.5 ? ` · save ${a.saving_p.toFixed(0)}p` : ''}</span></div>`;
   }).join('');
 }
 const fmtDelay = (h) => (Number.isInteger(h) ? `${h}h` : `${Math.floor(h)}h${String(Math.round((h % 1) * 60)).padStart(2, '0')}`);
@@ -497,7 +502,7 @@ function renderPrices(d, tab) {
   }
   const nowIdx = curStart ? slots.findIndex((s) => s.start === curStart) : -1;
   const appl = tab === 'today' && (state.energy.appliances || []).length
-    ? `<div class="card"><h2>Appliances · delay to set for the cheapest run</h2><div class="advice">${adviceRows(state.energy.appliances, true)}</div></div>` : '';
+    ? `<div class="card"><h2>Appliances · timer to set for the cheapest run</h2><div class="advice">${adviceRows(state.energy.appliances, true)}</div></div>` : '';
   body.innerHTML = `<div class="card"><div class="tiles">${tiles.join('')}</div></div>${appl}
     <div class="card"><div class="chart-head"><span>p/kWh by half hour · tap a bar</span><span class="readout" id="price-readout"></span></div>
     <div class="chart big-chart" id="price-chart"></div>

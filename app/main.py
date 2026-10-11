@@ -143,8 +143,10 @@ def price_summary(unit: list[agile.Rate], slots: list[agile.Rate], now: datetime
         lines.append(f"PLUNGE (paid to use): {spans}, as low as {min(s.price for s in plunge):.1f}p")
     horizon = agile.last_known(unit) or slots[-1].end
     for a in S.appliances:
-        if b := agile.best_start(unit, now, timedelta(hours=a.hours), timedelta(hours=S.appliance_step_hours), horizon):
-            lines.append(f"{a.name}: start {hm(b['start'])} ({b['avg']:.1f}p avg)")
+        step = timedelta(hours=S.appliance_step_hours)
+        if b := agile.best_start(unit, now, timedelta(hours=a.hours), step, horizon, finish=a.finish):
+            when = f"start {hm(b['start'])}" + (f", done {hm(b['end'])}" if a.finish else "")
+            lines.append(f"{a.name}: {when} ({b['avg']:.1f}p avg)")
     title = "Tomorrow's prices are out" + (" - plunge pricing!" if plunge else "")
     return title, "\n".join(lines), ["zap"] + (["tada"] if plunge else [])
 
@@ -360,11 +362,11 @@ def appliance_advice(
     out = []
     step = timedelta(hours=S.appliance_step_hours)
     for a in S.appliances:
-        best = agile.best_start(unit, now, timedelta(hours=a.hours), step, horizon)
+        best = agile.best_start(unit, now, timedelta(hours=a.hours), step, horizon, finish=a.finish)
         # Before tomorrow's prices land (~4pm) the overnight cheap slots are unknown,
         # so an afternoon recommendation may get better later.
         partial = not tomorrow_known and now.hour >= 12
-        item: dict[str, Any] = {"name": a.name, "hours": a.hours, "partial": partial}
+        item: dict[str, Any] = {"name": a.name, "hours": a.hours, "partial": partial, "finish": a.finish}
         if best:
             saving = None
             if a.kwh and best["now_avg"] is not None:
@@ -373,6 +375,8 @@ def appliance_advice(
                 start=best["start"].astimezone(TZ).isoformat(),
                 end=best["end"].astimezone(TZ).isoformat(),
                 delay_h=round(best["delay"].total_seconds() / 3600, 2),
+                # what to set on a "Finish in" timer: delay + cycle, whole steps
+                finish_in_h=round((best["delay"].total_seconds() / 3600) + a.hours, 2) if a.finish else None,
                 avg=round(best["avg"], 2),
                 now_avg=round(best["now_avg"], 2) if best["now_avg"] is not None else None,
                 saving_p=saving,
