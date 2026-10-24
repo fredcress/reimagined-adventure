@@ -52,59 +52,6 @@ def readings(tz: ZoneInfo, days_back: int) -> list[Reading]:
     return out
 
 
-def sessions() -> list[dict]:
-    return [
-        {
-            "user": "living room",
-            "device": "Living Room TV",
-            "client": "Jellyfin Android TV",
-            "type": "Episode",
-            "title": "Severance",
-            "subtitle": "S2E4 · Woe's Hollow",
-            "paused": False,
-            "progress": 0.37,
-            "remaining_s": 1960,
-            "image": None,
-        }
-    ]
-
-
-_LATEST = [
-    ("Episode", "The Bear", "S3E2 · Next"),
-    ("Movie", "Dune: Part Two", "2024"),
-    ("Episode", "Slow Horses", "S4E6 · Hello Goodbye"),
-    ("Movie", "Paddington in Peru", "2024"),
-    ("Movie", "Conclave", "2024"),
-    ("Episode", "Taskmaster", "S18E1 · Bus Wankers"),
-    ("Movie", "The Wild Robot", "2024"),
-    ("Episode", "Andor", "S2E1 · One Year Later"),
-    ("Movie", "Flow", "2024"),
-    ("Episode", "Blue Lights", "S2E5 · Episode 5"),
-    ("Movie", "Anora", "2024"),
-    ("Movie", "Heretic", "2024"),
-    ("Episode", "Severance", "S2E3 · Who Is Alive?"),
-    ("Movie", "Gladiator II", "2024"),
-]
-
-
-def latest(limit: int = 8, skip: int = 0, types: str = "Movie,Episode") -> dict:
-    now = datetime.now().astimezone()
-    wanted = set(types.split(","))
-    items = [
-        {
-            "type": t,
-            "title": title,
-            "subtitle": sub,
-            "added": (now - timedelta(hours=5 * i + 1)).isoformat(),
-            "image": None,
-            "overview": "Demo item - real data appears once JELLYFIN_URL is set.",
-        }
-        for i, (t, title, sub) in enumerate(_LATEST)
-        if t in wanted
-    ]
-    return {"results": items[skip : skip + limit], "total": len(items), "skip": skip, "take": limit}
-
-
 _REQUESTS = [
     ("Wicked", "2024", "movie", "pending", "Sam"),
     ("Andor", "2022", "tv", "processing", "Alex"),
@@ -256,3 +203,6 @@ def seerr_discover(query: str | None = None, page: int = 1) -> dict:
 def seerr_request(media_type: str, tmdb_id: int) -> dict:
     _requested.add((media_type, tmdb_id))
     return {"status": "pending"}
+
+
+TODOS = ["Book boiler service", "Milk + eggs", "Return parcel", "Bin day: recycling", "Descale kettle"]

@@ -1,11 +1,11 @@
 # Kitchen Monitor
 
 A touch dashboard for a 10" 1024×600 screen in the kitchen showing Octopus Agile
-prices and usage, Jellyfin, and Seerr requests.
+prices and usage, a shared to-do list, kitchen timers, weather and Seerr requests.
 
 ```
-[Octopus API]   [Jellyfin]   [Seerr]
-        \            |          /
+[Octopus API]   [Seerr]   [Open-Meteo]   [TrueNAS]
+        \            |          /           /
    kitchen-monitor container (TrueNAS / Dockge)
      - polls each source, caches, does the maths
      - serves the page + JSON
@@ -20,16 +20,17 @@ one script.
 
 **Home**: current/next Agile price, the cheapest 1h and 3h windows,
 **appliance advice** ("Dishwasher eco in 6h": the delay to set for the
-cheapest run), a price chart to the end of published prices, yesterday's usage and cost, what's
-playing on Jellyfin, recently added items, and Seerr request counts.
+cheapest run), a price chart to the end of published prices, yesterday's usage and cost,
+and the **shared to-do list** (tick items off with a tap; add from any phone or the screen).
+The top bar has Timer, Weather, Requests (Seerr, with the pending count) and NAS chips.
 
 Tap a panel to drill in:
 
 | Panel | Tabs |
 |---|---|
 | Energy | Today / Tomorrow (every half hour, tap a bar), Usage (31 days, tap a day for its half-hourly kWh coloured by price) |
-| Jellyfin | Now playing (live), Recently added / Movies / Episodes (poster grid, tap for details) |
-| Requests | Pending / Processing / Available / All, **Search** (on-screen keyboard) and **Trending**. Tap a poster, then Request, then tap again to confirm. |
+| To do | Add (on-screen keyboard on the kiosk, the phone's own keyboard on a phone), tick, untick, delete, clear done. Ticked items vanish after a week. |
+| Requests (top bar) | Pending / Processing / Available / All, **Search** (on-screen keyboard) and **Trending**. Tap a poster, then Request, then tap again to confirm. |
 | Weather (top bar) | Now, next rain, drying-day hint, next 12h, rain chance for 24h, 7 days |
 | NAS (top bar) | Pool health and usage, active TrueNAS alerts |
 | Timers (top bar) | Presets 1-45 min, custom length, optional label (Pasta, Rice…), +1/+5 min, cancel |
@@ -150,7 +151,6 @@ restarts the browser every night at 04:00. Check headroom with `free -m`.
 | `OCTOPUS_API_KEY`, `OCTOPUS_ACCOUNT` | From the Octopus dashboard → Personal details → API access. The meter, MPAN and tariff are discovered from the account. |
 | `OCTOPUS_MPAN`, `OCTOPUS_SERIAL` | Only if you have several import meters |
 | `OCTOPUS_API_URL` | Optional API host (default `https://api.octopus.energy`; `https://api.oegb-kraken.energy` also works) |
-| `JELLYFIN_URL`, `JELLYFIN_API_KEY` | Dashboard → API Keys |
 | `SEERR_URL`, `SEERR_API_KEY` | Settings → General. Works with Jellyseerr/Overseerr too. |
 | `PRICE_CHEAP`, `PRICE_EXPENSIVE` | Colour thresholds in p/kWh (default 15 / 25). Prices ≤ 0 show as "plunge". |
 | `CHEAPEST_WINDOWS` | Window lengths in hours for the home tiles (default `1,3`) |
@@ -166,6 +166,7 @@ restarts the browser every night at 04:00. Check headroom with `free -m`.
 | `NTFY_PRICES`, `NTFY_TIMERS`, `NTFY_NAS` | Which pushes to send (all on by default) |
 | `SCREEN_OFF_AT_NIGHT` | `1` = switch the screen off at night (needs kiosk-display on the Pi) |
 | `TZ` | Default `Europe/London` |
+| `DATA_DIR` | Where the to-do list is saved (default `/data`, a named volume in `compose.yaml`) |
 
 A service left unconfigured shows "Not configured". The rest still work.
 
@@ -178,14 +179,13 @@ is down, the screen keeps showing old data and a ⚠ chip appears in the top bar
 |---|---|
 | Agile unit rates + standing charge (31 days back to tomorrow) | 15 min |
 | Consumption (31 days) | 60 min |
-| Jellyfin sessions | 10 s |
-| Jellyfin recently added | 10 min |
 | Seerr counts + latest | 2 min |
 | Weather | 15 min |
 | TrueNAS health | 5 min |
 
-Detail views (Jellyfin/Seerr lists, paging) are fetched live when you tap.
-Jellyfin posters are proxied through the server, so the Pi never needs the token.
+Detail views (Seerr lists, paging) are fetched live when you tap.
+The to-do list is saved to `DATA_DIR/todos.json` after every change. In demo
+mode it stays in memory.
 Seerr posters come straight from TMDB's image CDN, so the Pi needs internet for those.
 
 The page polls `/api/state` every 10 s. If the server is unreachable it keeps
@@ -193,10 +193,9 @@ the last data on screen and shows "Server offline".
 
 API endpoints: `/api/state`, `/api/energy/prices?day=YYYY-MM-DD`,
 `/api/energy/usage`, `/api/energy/usage/YYYY-MM-DD`,
-`/api/jellyfin/latest?kind=all|movies|episodes&skip=&take=`,
 `/api/seerr/requests?filter=all|pending|approved|processing|available&skip=&take=`,
 `/api/seerr/search?q=`, `/api/seerr/discover?kind=trending|movies|tv`,
-`POST /api/seerr/request`, `/api/display`, `POST /api/ntfy/test`,
+`POST /api/seerr/request`, `/api/todos` (GET/POST, `PATCH|DELETE /api/todos/{id}`, `POST /api/todos/clear-done`), `/api/display`, `POST /api/ntfy/test`,
 `GET/POST /api/timers`, `POST /api/timers/{id}/add`, `DELETE /api/timers/{id}`,
 `/healthz`.
 

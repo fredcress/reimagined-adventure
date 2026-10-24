@@ -77,8 +77,6 @@ class Settings:
     octopus_serial: str | None
     octopus_api_url: str
 
-    jellyfin_url: str | None
-    jellyfin_api_key: str | None
 
     seerr_url: str | None
     seerr_api_key: str | None
@@ -111,6 +109,7 @@ class Settings:
     night_start: str | None
     night_end: str | None
     timer_labels: tuple[str, ...]
+    data_dir: str  # where the to-do list is saved; mount a volume here
 
     @property
     def octopus_enabled(self) -> bool:
@@ -123,10 +122,6 @@ class Settings:
     @property
     def truenas_enabled(self) -> bool:
         return bool(self.truenas_url and self.truenas_api_key)
-
-    @property
-    def jellyfin_enabled(self) -> bool:
-        return bool(self.jellyfin_url and self.jellyfin_api_key)
 
     @property
     def seerr_enabled(self) -> bool:
@@ -143,8 +138,6 @@ def load() -> Settings:
         octopus_mpan=_env("OCTOPUS_MPAN"),
         octopus_serial=_env("OCTOPUS_SERIAL"),
         octopus_api_url=_url("OCTOPUS_API_URL") or "https://api.octopus.energy",
-        jellyfin_url=_url("JELLYFIN_URL"),
-        jellyfin_api_key=_env("JELLYFIN_API_KEY"),
         seerr_url=_url("SEERR_URL"),
         seerr_api_key=_env("SEERR_API_KEY"),
         seerr_allow_requests=_bool("SEERR_ALLOW_REQUESTS", True),
@@ -172,4 +165,5 @@ def load() -> Settings:
         timer_labels=tuple(
             x.strip() for x in _env("TIMER_LABELS", "Pasta,Rice,Eggs,Oven,Tea").split(",") if x.strip()
         ),
+        data_dir=_env("DATA_DIR", "/data"),
     )

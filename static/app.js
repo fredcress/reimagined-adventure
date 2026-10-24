@@ -1,6 +1,6 @@
 // Kitchen monitor frontend. Stateless: everything comes from the server.
 // Home view polls /api/state; tapping a panel opens a detail view (#/energy,
-// #/jellyfin, #/seerr) which fetches what it needs. Idle -> back to home.
+// #/seerr, #/todo...) which fetches what it needs. Idle -> back to home.
 'use strict';
 
 const POLL_MS = 10_000;
@@ -50,7 +50,6 @@ function poster(letterFrom, src) {
   const img = src ? `<img src="${esc(src)}" alt="" loading="lazy" onerror="this.remove()">` : '';
   return `<div class="poster">${letter}${img}</div>`;
 }
-const jfImg = (id) => (id ? `/img/jellyfin/${id}` : null);
 
 // --- bar chart (plain SVG) -------------------------------------------------------
 
@@ -240,8 +239,7 @@ function renderHome() {
     $('energy-advice').classList.toggle('compact', shown.length > 2); // two columns, shorter text
     renderUsageStrip(e.usage || []);
   }
-  renderJellyfinCard();
-  renderSeerrCard();
+  renderTodoHome();
 }
 
 // "Dishwasher eco in 6h" - delay to set on the appliance for its cheapest run.
@@ -290,45 +288,16 @@ function renderUsageStrip(days) {
   });
 }
 
-function npBlock(s) {
-  const pct = s.progress != null ? Math.round(s.progress * 100) : null;
-  const left = s.remaining_s != null ? `${Math.round(s.remaining_s / 60)}m left` : '';
-  return `<div class="np">${poster(s.title, jfImg(s.image))}
-    <div class="info"><div class="title">${s.paused ? '⏸ ' : ''}${esc(s.title)}</div>
-    <div class="meta">${esc(s.subtitle || '')}</div>
-    <div class="meta">${esc(s.device || '')}${s.user ? ` · ${esc(s.user)}` : ''}${left ? ` · ${left}` : ''}</div>
-    ${pct != null ? `<div class="bar"><i style="width:${pct}%"></i></div>` : ''}</div></div>`;
-}
-
-function renderJellyfinCard() {
-  const j = state.jellyfin;
-  if (!j.enabled) { $('jf-now').innerHTML = '<div class="empty">Not configured</div>'; $('jf-latest').innerHTML = ''; return; }
-  const sessions = j.sessions || [];
-  $('jf-now').innerHTML = sessions.length ? sessions.slice(0, 2).map(npBlock).join('') : '<div class="empty">Nothing playing</div>';
-  const n = sessions.length ? 2 : 5;
-  $('jf-latest').innerHTML = (j.latest || []).slice(0, n).map((i) =>
-    `<li><span class="t">${esc(i.title)}<small>${esc(i.subtitle || '')}</small></span><span class="age">${ago(i.added)}</span></li>`).join('');
-}
-
-function renderSeerrCard() {
-  const s = state.seerr;
-  if (!s.enabled) { $('seerr-counts').innerHTML = '<div class="empty">Not configured</div>'; $('seerr-list').innerHTML = ''; return; }
-  const c = s.counts || {};
-  $('seerr-counts').innerHTML = [['pending', 'Pending'], ['processing', 'Processing'], ['available', 'Available']]
-    .map(([k, l]) => `<div class="count"><b>${c[k] ?? '–'}</b><span>${l}</span></div>`).join('');
-  $('seerr-list').innerHTML = (s.requests || []).slice(0, 4).map((r) =>
-    `<li><span class="t">${esc(r.title)}<small>${esc(r.user || '')}</small></span><span class="pill ${esc(r.status)}">${esc(r.status)}</span></li>`).join('');
-}
-
 function renderStatus() {
   const chips = [];
   if (state && state.demo) chips.push('<span class="chip">Demo</span>');
   if (offline) chips.push(`<span class="chip err">Server offline${lastOk ? ` · since ${fmtTime(lastOk)}` : ''}</span>`);
   if (state) {
-    const names = { energy: 'Octopus', jellyfin: 'Jellyfin', seerr: 'Seerr', weather: 'Weather' };
+    const names = { energy: 'Octopus', seerr: 'Seerr', weather: 'Weather' };
     for (const [k, label] of Object.entries(names)) {
       if (state[k].error) chips.push(`<span class="chip warn" title="${esc(state[k].error)}">${label} ⚠</span>`);
     }
+    if (state.todos && state.todos.error) chips.push(`<span class="chip warn" title="${esc(state.todos.error)}">To-do not saved ⚠</span>`);
   }
   $('status').innerHTML = chips.join('');
   renderTopChips();
@@ -342,6 +311,11 @@ function renderTopChips() {
     const next = w.rain_at ? `rain ${fmtTime(w.rain_at)}` : w.drying && w.current.day ? 'drying day' : 'dry';
     html += `<button class="tchip wx" data-href="#/weather">${wxIcon(w.current.icon, 20)}<b>${Math.round(w.current.temp)}°</b><span>${next}</span></button>`;
   }
+  const s = state && state.seerr;
+  if (s && s.enabled) {
+    const pending = (s.counts || {}).pending;
+    html += `<button class="tchip req" data-href="#/seerr">${FILM_ICON}<b class="tlabel">Requests</b>${pending ? `<span class="badge">${pending}</span>` : ''}</button>`;
+  }
   const n = state && state.nas;
   if (n && (n.enabled || n.error)) {
     const st = n.error && !n.state ? 'err' : n.state || 'err';
@@ -350,6 +324,8 @@ function renderTopChips() {
   }
   $('top-chips').innerHTML = html;
 }
+
+const FILM_ICON = '<svg class="wxi" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M7 4v16M17 4v16M3 9h4M3 15h4M17 9h4M17 15h4"/></svg>';
 
 // Small weather icons as inline SVG (the Pi's fonts have no emoji).
 function wxIcon(name, size = 24) {
@@ -372,7 +348,7 @@ function wxIcon(name, size = 24) {
 
 const VIEWS = {
   energy: { title: 'Energy', tabs: [['today', 'Today'], ['tomorrow', 'Tomorrow'], ['usage', 'Usage']] },
-  jellyfin: { title: 'Jellyfin', tabs: [['now', 'Now playing'], ['all', 'Recently added'], ['movies', 'Movies'], ['episodes', 'Episodes']] },
+  todo: { title: 'To do', tabs: [['list', 'List']] },
   seerr: { title: 'Requests', tabs: [['pending', 'Pending'], ['processing', 'Processing'], ['available', 'Available'], ['all', 'All'], ['search', 'Search'], ['trending', 'Trending']] },
   weather: { title: 'Weather', tabs: [['forecast', 'Forecast']] },
   nas: { title: 'NAS', tabs: [['health', 'Health']] },
@@ -400,6 +376,7 @@ function showRoute() {
   $('back').hidden = home;
   $('view-title').textContent = home ? '' : VIEWS[r.view].title;
   closeSheet();
+  if (r.view !== 'todo') { todoKeyboard = false; todoText = ''; }
   if (home) { if (state) renderHome(); return; }
   $('tabs').hidden = VIEWS[r.view].tabs.length < 2;
   $('tabs').innerHTML = VIEWS[r.view].tabs.map(([k, l]) =>
@@ -424,10 +401,7 @@ function renderDetail(r = route(), quiet = false) {
     if (r.tab === 'tomorrow') day.setTime(day.getTime() + 86400e3);
     return getJSON(`/api/energy/prices?day=${ymd(day)}`).then(guard((d) => renderPrices(d, r.tab))).catch(fail);
   }
-  if (r.view === 'jellyfin') {
-    if (r.tab === 'now') return renderNowPlaying();
-    return pagedGrid(`/api/jellyfin/latest?kind=${r.tab}`, 18, seq, renderPosterGrid);
-  }
+  if (r.view === 'todo') return renderTodo(r.arg === 'add');
   if (r.view === 'timers') return renderTimers();
   if (r.view === 'weather') return renderWeather();
   if (r.view === 'nas') return renderNas();
@@ -456,12 +430,6 @@ function pagedGrid(base, take, seq, renderItems) {
   return load();
 }
 
-function renderPosterGrid(items) {
-  return `<div class="grid-posters">${items.map((it, i) => `<button class="pcard" data-item="${i}">
-    ${poster(it.title, jfImg(it.image))}<div class="title">${esc(it.title)}</div>
-    <div class="meta">${esc(it.subtitle || '')}</div><div class="meta">added ${ago(it.added)} ago</div></button>`).join('')}</div>`;
-}
-
 function renderRequestRows(items) {
   return `<div class="rows">${items.map((it, i) => `<button class="row" data-item="${i}">
     ${poster(it.title, it.poster)}
@@ -470,135 +438,113 @@ function renderRequestRows(items) {
     <span class="pill ${esc(it.status)}">${esc(it.status)}</span></button>`).join('')}</div>`;
 }
 
-function renderNowPlaying() {
-  const j = state.jellyfin;
-  const body = $('detail-body');
-  if (!j.enabled) { body.innerHTML = '<div class="card"><div class="empty">Jellyfin not configured</div></div>'; return; }
-  body.innerHTML = `<div class="card">${(j.sessions || []).length
-    ? j.sessions.map(npBlock).join('') : '<div class="empty">Nothing playing right now</div>'}</div>
-    <p class="note">Updates every ${POLL_MS / 1000}s.</p>`;
+
+// --- shared to-do list --------------------------------------------------------------
+// Everyone edits the same list (phones and the kitchen screen); the server keeps it.
+
+let todoText = '';
+let todoKeyboard = false;
+const RECENT_TICK_MS = 60 * 60e3; // ticked items stay visible on home for an hour, to undo a stray tap
+
+const CHECK_ICON = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>';
+
+function todoRow(it, withDelete) {
+  return `<li class="titem ${it.done ? 'done' : ''}">
+    <button class="tcheck" data-tick="${esc(it.id)}" aria-label="${it.done ? 'Untick' : 'Tick'}">${it.done ? CHECK_ICON : ''}</button>
+    <span class="ttext">${esc(it.text)}</span>
+    ${withDelete ? `<button class="tdel" data-del="${esc(it.id)}" aria-label="Delete">✕</button>` : ''}</li>`;
 }
 
-function renderPrices(d, tab) {
+function renderTodoHome() {
+  const items = (state.todos && state.todos.items) || [];
+  const now = Date.now();
+  const open = items.filter((i) => !i.done);
+  const recent = items.filter((i) => i.done && now - Date.parse(i.done_at) < RECENT_TICK_MS);
+  $('todo-home').innerHTML = open.length || recent.length
+    ? open.concat(recent).map((i) => todoRow(i, false)).join('')
+    : '<li class="empty">Nothing to do. Tap + Add, or add from your phone.</li>';
+}
+
+// True while someone is typing, so the 10 s refresh doesn't wipe their text.
+const todoEditing = () => todoKeyboard || todoText.length > 0 || (document.activeElement && document.activeElement.id === 'tinput');
+
+async function todoApi(method, url, body) {
+  try {
+    const r = await fetch(url, { method, headers: { 'Content-Type': 'application/json' }, body: body && JSON.stringify(body) });
+    if (!r.ok) throw new Error((await r.json().catch(() => ({}))).detail || `HTTP ${r.status}`);
+    if (state) state.todos = await r.json();
+  } catch (e) {
+    offline = true;
+    renderStatus();
+  }
+  if (route().view === 'home') renderTodoHome(); else if (route().view === 'todo') renderTodo(false, true);
+}
+const tickTodo = (id) => {
+  const it = ((state.todos && state.todos.items) || []).find((i) => i.id === id);
+  if (it) todoApi('PATCH', `/api/todos/${id}`, { done: !it.done });
+};
+
+function renderTodo(openKeyboard, quiet) {
   const body = $('detail-body');
-  const slots = d.slots;
-  if (!slots.length) {
-    body.innerHTML = `<div class="card"><div class="empty">${tab === 'tomorrow'
-      ? "Tomorrow's prices aren't out yet - Octopus usually publishes them around 4pm." : 'No prices for today.'}</div></div>`;
-    return;
-  }
-  const curStart = tab === 'today' && state.energy.current ? state.energy.current.start : null;
-  const th = state.energy.thresholds;
-  const band = (p) => (p <= 0 ? 'plunge' : p < th.cheap ? 'cheap' : p < th.expensive ? 'normal' : 'expensive');
-  const tiles = [
-    tile('Lowest', priceVal(d.stats.min), '', band(d.stats.min)),
-    tile('Average', priceVal(d.stats.avg), (() => { const v = verdict(d.stats.avg, d.typical_avg); return v ? `${v.html} · ${vsUsual(v, d.typical_avg, '30-day')}` : ''; })(), band(d.stats.avg)),
-    tile('Highest', priceVal(d.stats.max), '', band(d.stats.max)),
-  ];
-  const future = curStart ? slots.filter((s) => s.start >= curStart) : slots;
-  for (const h of [1, 3]) {
-    const w = cheapest(future, h * 2);
-    if (w) tiles.push(tile(`Cheapest ${h}h${curStart ? ' left' : ''}`, priceVal(w.avg), `${fmtTime(w.start)}–${fmtTime(w.end)}`, band(w.avg)));
-  }
-  const nowIdx = curStart ? slots.findIndex((s) => s.start === curStart) : -1;
-  const appl = tab === 'today' && (state.energy.appliances || []).length
-    ? `<div class="card"><h2>Appliances · timer to set for the cheapest run</h2><div class="advice">${adviceRows(state.energy.appliances, true)}</div></div>` : '';
-  body.innerHTML = `<div class="card"><div class="tiles">${tiles.join('')}</div></div>${appl}
-    <div class="card"><div class="chart-head"><span>p/kWh by half hour · tap a bar</span><span class="readout" id="price-readout"></span></div>
-    <div class="chart big-chart" id="price-chart"></div>
-    <div class="legend">${['plunge', 'cheap', 'normal', 'expensive'].map((b) => `<span><span class="dot ${b}"></span>${BAND_LABEL[b]}</span>`).join('')}
-    <span>dashed lines: ${th.cheap}p / ${th.expensive}p</span></div></div>`;
-  const select = (i) => {
-    const s = slots[i];
-    $('price-readout').textContent = `${fmtTime(s.start)}–${fmtTime(s.end)} · ${p1(s.price)}p · ${BAND_LABEL[s.band]}`;
-    draw(i);
+  if (openKeyboard) todoKeyboard = true;
+  const items = (state.todos && state.todos.items) || [];
+  const open = items.filter((i) => !i.done), done = items.filter((i) => i.done);
+  const list = `<div class="card"><ul class="todo-list big">${open.length ? open.map((i) => todoRow(i, true)).join('')
+      : '<li class="empty">Nothing to do.</li>'}</ul>
+    ${done.length ? `<div class="todo-done-head"><span class="note">Done · cleared automatically after a week</span>
+      <button class="label-btn" id="clear-done">Clear done (${done.length})</button></div>
+      <ul class="todo-list big">${done.map((i) => todoRow(i, true)).join('')}</ul>` : ''}</div>`;
+  if (quiet && $('todo-list-wrap')) { $('todo-list-wrap').innerHTML = list; bindTodoList(); return; }
+  const phone = PHONE.matches;
+  const box = phone
+    ? `<form id="tform" class="tform"><input class="searchbox" id="tinput" maxlength="120" autocomplete="off"
+         enterkeyhint="done" placeholder="Add an item…" value="${esc(todoText)}"><button class="big-btn primary">Add</button></form>`
+    : `<button class="searchbox" id="tbox"><span id="tq"></span></button>
+       <div class="kbd" id="tkbd" ${todoKeyboard ? '' : 'hidden'}>
+        ${KEY_ROWS.map((row) => `<div class="krow">${[...row].map((k) => `<button class="key" data-k="${k}">${k}</button>`).join('')}${row === 'zxcvbnm' ? '<button class="key wide" data-k="back">⌫</button>' : ''}</div>`).join('')}
+        <div class="krow"><button class="key wide" data-k="close">Done</button><button class="key space" data-k=" ">space</button><button class="key wide go" data-k="go">Add</button></div>
+       </div>`;
+  body.innerHTML = `<div class="card">${box}</div><div id="todo-list-wrap">${list}</div>`;
+  const add = () => {
+    const text = todoText.trim();
+    if (!text) return;
+    todoText = '';
+    todoApi('POST', '/api/todos', { text });
   };
-  const draw = (sel) => barChart($('price-chart'), slots, {
-    value: (s) => s.price,
-    color: (s) => bandColor(s.band),
-    past: (s) => curStart && s.start < curStart,
-    lines: [{ v: th.cheap }, { v: th.expensive }],
-    selected: sel,
-    onSelect: select,
-    ...priceAxis(slots),
-  });
-  select(nowIdx >= 0 ? nowIdx : 0);
+  if (phone) {
+    $('tform').addEventListener('submit', (e) => { e.preventDefault(); todoText = $('tinput').value; add(); $('tinput').value = ''; });
+    $('tinput').addEventListener('input', (e) => { todoText = e.target.value; });
+  } else {
+    const show = () => { $('tq').innerHTML = esc(todoText) || '<span class="note">Tap to type an item…</span>'; };
+    show();
+    $('tbox').addEventListener('click', () => { todoKeyboard = true; $('tkbd').hidden = false; });
+    $('tkbd').addEventListener('click', (e) => {
+      const k = e.target.closest('[data-k]');
+      if (!k) return;
+      const key = k.dataset.k;
+      if (key === 'back') todoText = todoText.slice(0, -1);
+      else if (key === 'close') { todoKeyboard = false; $('tkbd').hidden = true; }
+      else if (key === 'go') add();
+      else if (todoText.length < 120) todoText += todoText ? key : key.toUpperCase(); // capitalise the first letter
+      show();
+    });
+  }
+  bindTodoList();
 }
 
-function renderUsage(d) {
-  const body = $('detail-body');
-  const days = d.days;
-  if (!days.length) { body.innerHTML = '<div class="card"><div class="empty">No readings yet - Octopus data usually arrives the next day.</div></div>'; return; }
-  const sum = (arr, k) => arr.reduce((a, x) => a + (x[k] || 0), 0);
-  const last7 = days.slice(-7);
-  body.innerHTML = `<div class="card"><div class="tiles">
-      ${tile('Last 7 days', `${sum(last7, 'kwh').toFixed(0)}<small>kWh</small>`, gbp(sum(last7, 'cost_p')))}
-      ${tile(`Last ${days.length} days`, `${sum(days, 'kwh').toFixed(0)}<small>kWh</small>`, gbp(sum(days, 'cost_p')))}
-      ${tile('Avg per day', gbp(sum(days, 'cost_p') / days.length), `${(sum(days, 'kwh') / days.length).toFixed(1)} kWh`)}
-    </div></div>
-    <div class="card"><div class="chart-head"><span>Daily cost, £ · press and slide, let go to open</span><span class="readout" id="usage-readout"></span></div>
-    <div class="chart" style="height:200px" id="usage-chart"></div></div>
-    <div class="card"><table class="days"><thead><tr><th>Day</th><th>kWh</th><th>Avg p/kWh</th><th>Standing</th><th>Cost</th></tr></thead><tbody>
-    ${[...days].reverse().map((x) => `<tr class="click" data-day="${x.date}"><td>${fmtDay(dayDate(x.date))}${x.complete ? '' : ' <small class="note">partial</small>'}</td>
-      <td>${x.kwh.toFixed(2)}</td><td>${p1(x.avg_price)}</td><td>${gbp(x.standing_p)}</td><td>${gbp(x.cost_p)}</td></tr>`).join('')}
-    </tbody></table></div>`;
-  const open = (date) => { location.hash = `#/energy/usage/${date}`; };
-  barChart($('usage-chart'), days, {
-    value: (x) => x.cost_p / 100,
-    color: () => 'var(--accent)',
-    xLabel: (x, i) => (i % 3 === 0 ? dtf({ day: 'numeric' }).format(dayDate(x.date)) : null),
-    onPreview: (i) => {
-      const x = days[i];
-      $('usage-readout').innerHTML = x ? `<b>${fmtDay(dayDate(x.date))}</b> · ${x.kwh.toFixed(1)} kWh · ${gbp(x.cost_p)}` : '';
-    },
-    onSelect: (i) => open(days[i].date),
-  });
-  body.querySelectorAll('tr[data-day]').forEach((tr) => tr.addEventListener('click', () => open(tr.dataset.day)));
-}
-
-function renderUsageDay(d) {
-  const body = $('detail-body');
-  const th = state.energy.thresholds;
-  const band = (p) => (p == null ? null : p <= 0 ? 'plunge' : p < th.cheap ? 'cheap' : p < th.expensive ? 'normal' : 'expensive');
-  const s = d.summary;
-  const v = s && verdict(s.avg_price, d.typical_paid);
-  const navBtn = (day, label) => (day
-    ? `<button class="step" data-day="${day}">${label}</button>` : '<span class="step off"></span>');
-  body.innerHTML = `<div class="card daynav">
-      ${navBtn(d.prev, `‹<span class="nl"> ${d.prev ? esc(fmtDay(dayDate(d.prev))) : ''}</span>`)}
-      <div class="dayname">${esc(dtf({ weekday: 'long', day: 'numeric', month: 'long' }).format(dayDate(d.date)))}</div>
-      ${navBtn(d.next, `<span class="nl">${d.next ? esc(fmtDay(dayDate(d.next))) : ''} </span>›`)}
-    </div>
-    <div class="card"><div class="tiles">
-      ${tile('Used', `${s ? s.kwh.toFixed(1) : '–'}<small>kWh</small>`, s && !s.complete ? 'partial day' : '')}
-      ${tile('Cost', gbp(s && s.cost_p), s ? `incl. ${gbp(s.standing_p)} standing` : '')}
-      ${tile('Avg price paid', priceVal(s && s.avg_price), v ? `${v.html} · ${vsUsual(v, d.typical_paid)}` : 'weighted by use')}
-    </div></div>
-    <div class="card"><div class="chart-head"><span>kWh per half hour, coloured by price · tap a bar</span><span class="readout" id="day-readout"></span></div>
-    <div class="chart big-chart" id="day-chart"></div>
-    <div class="legend">${['plunge', 'cheap', 'normal', 'expensive'].map((b) => `<span><span class="dot ${b}"></span>${BAND_LABEL[b]}</span>`).join('')}</div></div>
-    <button class="more" id="back-usage">‹ All days</button>`;
-  $('back-usage').addEventListener('click', () => { location.hash = '#/energy/usage'; });
-  body.querySelectorAll('.daynav [data-day]').forEach((b) => b.addEventListener('click', () => { location.hash = `#/energy/usage/${b.dataset.day}`; }));
-  const draw = (sel) => barChart($('day-chart'), d.slots, {
-    value: (x) => x.kwh,
-    color: (x) => bandColor(band(x.price)),
-    selected: sel,
-    onSelect: (i) => {
-      const x = d.slots[i];
-      $('day-readout').textContent = `${fmtTime(x.start)} · ${x.kwh.toFixed(2)} kWh · ${p1(x.price)}p · ${x.cost_p == null ? '–' : `${x.cost_p.toFixed(1)}p`}`;
-      draw(i);
-    },
-    xLabel: (x) => { const t = fmtTime(x.start); return t.endsWith(':00') && +t.slice(0, 2) % 3 === 0 ? t.slice(0, 2) : null; },
-  });
-  draw(null);
+function bindTodoList() {
+  const wrap = $('todo-list-wrap');
+  wrap.querySelectorAll('[data-tick]').forEach((b) => b.addEventListener('click', () => tickTodo(b.dataset.tick)));
+  wrap.querySelectorAll('[data-del]').forEach((b) => b.addEventListener('click', () => todoApi('DELETE', `/api/todos/${b.dataset.del}`)));
+  const clear = $('clear-done');
+  if (clear) clear.addEventListener('click', () => todoApi('POST', '/api/todos/clear-done'));
 }
 
 // --- sheet -----------------------------------------------------------------------
 
 function openSheet(it) {
   if (it.tmdb_id) return openDiscoverSheet(it);
-  const img = it.poster || jfImg(it.image);
+  const img = it.poster;
   const meta = [it.subtitle, it.year, it.type && { tv: 'TV', movie: 'Movie' }[it.type], it.user && `requested by ${it.user}`]
     .filter(Boolean).map(esc).join(' · ');
   $('sheet-body').innerHTML = `${poster(it.title, img)}<div>
@@ -859,7 +805,7 @@ function tickTimers() {
   const list = (state && state.timers) || [];
   $('timer-chips').innerHTML = list.length
     ? list.map((t) => { const left = timerLeft(t); return `<button class="tchip ${left <= 0 ? 'done' : ''}" data-href="#/timers">${esc(timerName(t))} ${fmtLeft(left)}</button>`; }).join('')
-    : `<button class="tchip" data-href="#/timers">${TIMER_ICON} Timer</button>`;
+    : `<button class="tchip" data-href="#/timers">${TIMER_ICON}<span class="tlabel"> Timer</span></button>`;
 
   const box = $('timer-list');
   if (box) {
@@ -941,7 +887,7 @@ async function poll() {
     offline = false;
     const r = route();
     if (r.view === 'home') renderHome();
-    else if (r.view === 'jellyfin' && r.tab === 'now') renderDetail(r, true);
+    else if (r.view === 'todo' && !todoEditing()) renderTodo(false, true);
     const c = s.energy.current;
     $('night-price').innerHTML = c ? `<span class="dot ${c.band}"></span>${p1(c.price)}p now · ${BAND_LABEL[c.band]}` : '';
   } catch (e) {
@@ -953,8 +899,10 @@ async function poll() {
 
 document.addEventListener('pointerdown', () => { lastTouch = Date.now(); }, true);
 document.addEventListener('click', (e) => {
+  const tick = e.target.closest('#todo-home [data-tick]');
+  if (tick) return tickTodo(tick.dataset.tick);
   const go = e.target.closest('[data-go]');
-  if (go && route().view === 'home') location.hash = `#/${go.dataset.go}`;
+  if (go && route().view === 'home' && !e.target.closest('[data-href]')) location.hash = `#/${go.dataset.go}`;
   const href = e.target.closest('[data-href]');
   if (href) location.hash = href.dataset.href;
 });

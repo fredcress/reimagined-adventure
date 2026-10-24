@@ -88,3 +88,15 @@ def test_usual_prices_and_day_navigation(client):
     assert d["prev"] < mid < d["next"]
     first = client.get(f"/api/energy/usage/{days[0]['date']}").json()
     assert first["prev"] is None
+
+
+def test_todo_api_round_trip(client):
+    items = client.post("/api/todos", json={"text": "Buy bread"}).json()["items"]
+    bread = next(i for i in items if i["text"] == "Buy bread")
+    assert items[0]["id"] == bread["id"]
+    items = client.patch(f"/api/todos/{bread['id']}", json={"done": True}).json()["items"]
+    assert next(i for i in items if i["id"] == bread["id"])["done"] is True
+    assert client.post("/api/todos", json={"text": "   "}).status_code == 422
+    assert client.patch("/api/todos/nope", json={"done": True}).status_code == 404
+    client.delete(f"/api/todos/{bread['id']}")
+    assert all(i["id"] != bread["id"] for i in client.get("/api/state").json()["todos"]["items"])

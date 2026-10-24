@@ -9,8 +9,11 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY app ./app
 COPY static ./static
 
-RUN useradd --system --uid 10001 kitchen
+RUN useradd --system --uid 10001 kitchen \
+ && mkdir /data && chown kitchen /data
 USER kitchen
+# The shared to-do list lives here; compose mounts a named volume so it survives updates.
+VOLUME /data
 
 EXPOSE 8080
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s \

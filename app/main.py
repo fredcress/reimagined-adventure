@@ -1,4 +1,4 @@
-"""Kitchen monitor: polls Octopus / Jellyfin / Seerr / weather / TrueNAS and serves the kiosk page.
+"""Kitchen monitor: polls Octopus / Seerr / weather / TrueNAS and serves the kiosk page.
 
 The Pi only renders what this serves. Overview data is polled in the
 background and cached; detail views (tapping a panel) fetch on demand.
@@ -7,7 +7,6 @@ background and cached; detail views (tapping a panel) fetch on demand.
 import asyncio
 import hashlib
 import logging
-import re
 import uuid
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
@@ -18,15 +17,15 @@ from zoneinfo import ZoneInfo
 
 import httpx
 from fastapi import FastAPI, HTTPException, Query
-from fastapi.responses import FileResponse, Response
+from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from . import agile, config, demo
 from .agile import SLOT
 from .notify import Ntfy
+from .todos import TodoStore
 from .sources import weather as wx
-from .sources.jellyfin import Jellyfin
 from .sources.octopus import Octopus
 from .sources.seerr import FILTERS, Seerr
 from .sources.truenas import TrueNAS
@@ -38,6 +37,12 @@ S = config.load()
 TZ = ZoneInfo(S.tz)
 STATIC = Path(__file__).parent.parent / "static"
 HISTORY_DAYS = 31  # usage/rates history kept for the energy detail view
+# Demo mode keeps its to-do list in memory so it never touches real data.
+todos = TodoStore(None if S.demo else Path(S.data_dir) / "todos.json")
+if S.demo:
+    for _text in demo.TODOS:
+        todos.add(_text)
+    todos.update(todos.items[-1]["id"], done=True)
 
 # Changes whenever the frontend files change, so the Pi reloads itself after a deploy.
 BUILD = hashlib.sha1(
@@ -61,7 +66,6 @@ class Source:
 
 
 octopus_on = S.demo or S.octopus_enabled
-jellyfin_on = S.demo or S.jellyfin_enabled
 seerr_on = S.demo or S.seerr_enabled
 weather_on = S.demo or S.weather_enabled
 nas_on = S.demo or S.truenas_enabled
@@ -69,8 +73,6 @@ nas_on = S.demo or S.truenas_enabled
 store = {
     "rates": Source(octopus_on),
     "usage": Source(octopus_on),
-    "sessions": Source(jellyfin_on),
-    "latest": Source(jellyfin_on),
     "seerr": Source(seerr_on),
     "weather": Source(weather_on),
     "nas": Source(nas_on),
@@ -78,7 +80,6 @@ store = {
 
 client: httpx.AsyncClient
 octopus: Octopus
-jellyfin: Jellyfin
 seerr: Seerr
 weather: wx.Weather | None = None
 truenas: TrueNAS | None = None
@@ -157,14 +158,6 @@ async def fetch_usage():
     return await octopus.consumption(history_start(), datetime.now(timezone.utc))
 
 
-async def fetch_sessions():
-    return demo.sessions() if S.demo else await jellyfin.sessions()
-
-
-async def fetch_latest():
-    return demo.latest(limit=6)["results"] if S.demo else (await jellyfin.latest(limit=6))["results"]
-
-
 async def fetch_seerr() -> dict:
     if S.demo:
         return {"counts": demo.seerr_counts(), "requests": demo.seerr_requests(take=5)["results"]}
@@ -221,9 +214,9 @@ async def poll(name: str, fetch: Callable[[], Awaitable[Any]], every: float):
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global client, octopus, jellyfin, seerr, weather, truenas, ntfy
+    global client, octopus, seerr, weather, truenas, ntfy
     client = httpx.AsyncClient(timeout=15)
-    octopus, jellyfin, seerr = Octopus(S, client), Jellyfin(S, client), Seerr(S, client)
+    octopus, seerr = Octopus(S, client), Seerr(S, client)
     ntfy = Ntfy(S.ntfy_url, S.ntfy_topic, S.ntfy_token, client)
     if S.weather_enabled:
         weather = wx.Weather(S.latitude, S.longitude, TZ, client)
@@ -236,8 +229,6 @@ async def lifespan(app: FastAPI):
     jobs = [
         ("rates", fetch_rates, 15 * 60),
         ("usage", fetch_usage, 60 * 60),
-        ("sessions", fetch_sessions, 10),
-        ("latest", fetch_latest, 10 * 60),
         ("seerr", fetch_seerr, 2 * 60),
         ("weather", fetch_weather, 15 * 60),
         ("nas", fetch_nas, 5 * 60),
@@ -439,14 +430,10 @@ async def state():
         "demo": S.demo,
         "night": is_night(now),
         "energy": energy_overview(now),
-        "jellyfin": {
-            **store["sessions"].meta(),
-            "sessions": store["sessions"].data or [],
-            "latest": store["latest"].data or [],
-        },
         "seerr": {**store["seerr"].meta(), **(store["seerr"].data or {})},
         "timers": timer_list(),
         "timer_labels": S.timer_labels,
+        "todos": {"items": todos.list(), "error": todos.error},
         "weather": {
             **store["weather"].meta(),
             **(wx.view(store["weather"].data, now) if store["weather"].data else {}),
@@ -513,24 +500,6 @@ async def energy_usage_day(day: date):
     }
 
 
-JELLYFIN_TYPES = {"all": "Movie,Episode", "movies": "Movie", "episodes": "Episode"}
-
-
-@app.get("/api/jellyfin/latest")
-async def jellyfin_latest(
-    kind: str = "all", skip: int = Query(0, ge=0), take: int = Query(12, ge=1, le=50)
-):
-    if not jellyfin_on:
-        raise HTTPException(404, "Jellyfin not configured")
-    types = JELLYFIN_TYPES.get(kind, JELLYFIN_TYPES["all"])
-    try:
-        if S.demo:
-            return demo.latest(limit=take, skip=skip, types=types)
-        return await jellyfin.latest(limit=take, skip=skip, types=types)
-    except httpx.HTTPError as e:
-        raise HTTPException(502, f"Jellyfin: {e}")
-
-
 @app.get("/api/seerr/requests")
 async def seerr_requests(
     filter: str = "all", skip: int = Query(0, ge=0), take: int = Query(10, ge=1, le=50)
@@ -588,26 +557,6 @@ async def seerr_request(body: RequestIn):
         raise HTTPException(502, f"Seerr: {e}")
     log.info("requested %s %s via kitchen screen", body.type, body.tmdb_id)
     return result
-
-
-_img_cache: dict[str, tuple[bytes, str]] = {}
-ITEM_ID = re.compile(r"[0-9a-f]{32}")
-
-
-@app.get("/img/jellyfin/{item_id}")
-async def jellyfin_image(item_id: str):
-    """Poster proxy, so the Pi never needs the Jellyfin token."""
-    if S.demo or not jellyfin_on or not ITEM_ID.fullmatch(item_id):
-        raise HTTPException(404)
-    if item_id not in _img_cache:
-        try:
-            _img_cache[item_id] = await jellyfin.image(item_id)
-        except httpx.HTTPError:
-            raise HTTPException(404)
-        if len(_img_cache) > 200:
-            _img_cache.pop(next(iter(_img_cache)))
-    body, ctype = _img_cache[item_id]
-    return Response(body, media_type=ctype, headers={"Cache-Control": "max-age=86400"})
 
 
 # --- kitchen timers ------------------------------------------------------------
@@ -682,6 +631,62 @@ async def extend_timer(timer_id: str, body: TimerAdd):
 async def delete_timer(timer_id: str):
     timers.pop(timer_id, None)
     return timer_list()
+
+
+# --- shared to-do list ------------------------------------------------------------
+
+
+class TodoIn(BaseModel):
+    text: str = Field(min_length=1, max_length=200)
+
+
+class TodoPatch(BaseModel):
+    done: bool | None = None
+    text: str | None = Field(None, max_length=200)
+
+
+def todo_list() -> dict:
+    return {"items": todos.list(), "error": todos.error}
+
+
+@app.get("/api/todos")
+async def get_todos():
+    return todo_list()
+
+
+@app.post("/api/todos")
+async def add_todo(body: TodoIn):
+    try:
+        todos.add(body.text)
+    except ValueError:
+        raise HTTPException(422, "Empty item")
+    except OverflowError as e:
+        raise HTTPException(409, str(e))
+    return todo_list()
+
+
+@app.patch("/api/todos/{item_id}")
+async def update_todo(item_id: str, body: TodoPatch):
+    try:
+        todos.update(item_id, done=body.done, text=body.text)
+    except KeyError:
+        raise HTTPException(404, "No such item")
+    return todo_list()
+
+
+@app.delete("/api/todos/{item_id}")
+async def delete_todo(item_id: str):
+    try:
+        todos.delete(item_id)
+    except KeyError:
+        pass  # already gone, e.g. deleted from another phone
+    return todo_list()
+
+
+@app.post("/api/todos/clear-done")
+async def clear_done_todos():
+    todos.clear_done()
+    return todo_list()
 
 
 # --- screen power + ntfy test ---------------------------------------------------
