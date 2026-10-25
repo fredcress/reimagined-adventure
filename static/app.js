@@ -430,6 +430,121 @@ function pagedGrid(base, take, seq, renderItems) {
   return load();
 }
 
+function renderPrices(d, tab) {
+  const body = $('detail-body');
+  const slots = d.slots;
+  if (!slots.length) {
+    body.innerHTML = `<div class="card"><div class="empty">${tab === 'tomorrow'
+      ? "Tomorrow's prices aren't out yet - Octopus usually publishes them around 4pm." : 'No prices for today.'}</div></div>`;
+    return;
+  }
+  const curStart = tab === 'today' && state.energy.current ? state.energy.current.start : null;
+  const th = state.energy.thresholds;
+  const band = (p) => (p <= 0 ? 'plunge' : p < th.cheap ? 'cheap' : p < th.expensive ? 'normal' : 'expensive');
+  const tiles = [
+    tile('Lowest', priceVal(d.stats.min), '', band(d.stats.min)),
+    tile('Average', priceVal(d.stats.avg), (() => { const v = verdict(d.stats.avg, d.typical_avg); return v ? `${v.html} · ${vsUsual(v, d.typical_avg, '30-day')}` : ''; })(), band(d.stats.avg)),
+    tile('Highest', priceVal(d.stats.max), '', band(d.stats.max)),
+  ];
+  const future = curStart ? slots.filter((s) => s.start >= curStart) : slots;
+  for (const h of [1, 3]) {
+    const w = cheapest(future, h * 2);
+    if (w) tiles.push(tile(`Cheapest ${h}h${curStart ? ' left' : ''}`, priceVal(w.avg), `${fmtTime(w.start)}–${fmtTime(w.end)}`, band(w.avg)));
+  }
+  const nowIdx = curStart ? slots.findIndex((s) => s.start === curStart) : -1;
+  const appl = tab === 'today' && (state.energy.appliances || []).length
+    ? `<div class="card"><h2>Appliances · timer to set for the cheapest run</h2><div class="advice">${adviceRows(state.energy.appliances, true)}</div></div>` : '';
+  body.innerHTML = `<div class="card"><div class="tiles">${tiles.join('')}</div></div>${appl}
+    <div class="card"><div class="chart-head"><span>p/kWh by half hour · tap a bar</span><span class="readout" id="price-readout"></span></div>
+    <div class="chart big-chart" id="price-chart"></div>
+    <div class="legend">${['plunge', 'cheap', 'normal', 'expensive'].map((b) => `<span><span class="dot ${b}"></span>${BAND_LABEL[b]}</span>`).join('')}
+    <span>dashed lines: ${th.cheap}p / ${th.expensive}p</span></div></div>`;
+  const select = (i) => {
+    const s = slots[i];
+    $('price-readout').textContent = `${fmtTime(s.start)}–${fmtTime(s.end)} · ${p1(s.price)}p · ${BAND_LABEL[s.band]}`;
+    draw(i);
+  };
+  const draw = (sel) => barChart($('price-chart'), slots, {
+    value: (s) => s.price,
+    color: (s) => bandColor(s.band),
+    past: (s) => curStart && s.start < curStart,
+    lines: [{ v: th.cheap }, { v: th.expensive }],
+    selected: sel,
+    onSelect: select,
+    ...priceAxis(slots),
+  });
+  select(nowIdx >= 0 ? nowIdx : 0);
+}
+
+function renderUsage(d) {
+  const body = $('detail-body');
+  const days = d.days;
+  if (!days.length) { body.innerHTML = '<div class="card"><div class="empty">No readings yet - Octopus data usually arrives the next day.</div></div>'; return; }
+  const sum = (arr, k) => arr.reduce((a, x) => a + (x[k] || 0), 0);
+  const last7 = days.slice(-7);
+  body.innerHTML = `<div class="card"><div class="tiles">
+      ${tile('Last 7 days', `${sum(last7, 'kwh').toFixed(0)}<small>kWh</small>`, gbp(sum(last7, 'cost_p')))}
+      ${tile(`Last ${days.length} days`, `${sum(days, 'kwh').toFixed(0)}<small>kWh</small>`, gbp(sum(days, 'cost_p')))}
+      ${tile('Avg per day', gbp(sum(days, 'cost_p') / days.length), `${(sum(days, 'kwh') / days.length).toFixed(1)} kWh`)}
+    </div></div>
+    <div class="card"><div class="chart-head"><span>Daily cost, £ · press and slide, let go to open</span><span class="readout" id="usage-readout"></span></div>
+    <div class="chart" style="height:200px" id="usage-chart"></div></div>
+    <div class="card"><table class="days"><thead><tr><th>Day</th><th>kWh</th><th>Avg p/kWh</th><th>Standing</th><th>Cost</th></tr></thead><tbody>
+    ${[...days].reverse().map((x) => `<tr class="click" data-day="${x.date}"><td>${fmtDay(dayDate(x.date))}${x.complete ? '' : ' <small class="note">partial</small>'}</td>
+      <td>${x.kwh.toFixed(2)}</td><td>${p1(x.avg_price)}</td><td>${gbp(x.standing_p)}</td><td>${gbp(x.cost_p)}</td></tr>`).join('')}
+    </tbody></table></div>`;
+  const open = (date) => { location.hash = `#/energy/usage/${date}`; };
+  barChart($('usage-chart'), days, {
+    value: (x) => x.cost_p / 100,
+    color: () => 'var(--accent)',
+    xLabel: (x, i) => (i % 3 === 0 ? dtf({ day: 'numeric' }).format(dayDate(x.date)) : null),
+    onPreview: (i) => {
+      const x = days[i];
+      $('usage-readout').innerHTML = x ? `<b>${fmtDay(dayDate(x.date))}</b> · ${x.kwh.toFixed(1)} kWh · ${gbp(x.cost_p)}` : '';
+    },
+    onSelect: (i) => open(days[i].date),
+  });
+  body.querySelectorAll('tr[data-day]').forEach((tr) => tr.addEventListener('click', () => open(tr.dataset.day)));
+}
+
+function renderUsageDay(d) {
+  const body = $('detail-body');
+  const th = state.energy.thresholds;
+  const band = (p) => (p == null ? null : p <= 0 ? 'plunge' : p < th.cheap ? 'cheap' : p < th.expensive ? 'normal' : 'expensive');
+  const s = d.summary;
+  const v = s && verdict(s.avg_price, d.typical_paid);
+  const navBtn = (day, label) => (day
+    ? `<button class="step" data-day="${day}">${label}</button>` : '<span class="step off"></span>');
+  body.innerHTML = `<div class="card daynav">
+      ${navBtn(d.prev, `‹<span class="nl"> ${d.prev ? esc(fmtDay(dayDate(d.prev))) : ''}</span>`)}
+      <div class="dayname">${esc(dtf({ weekday: 'long', day: 'numeric', month: 'long' }).format(dayDate(d.date)))}</div>
+      ${navBtn(d.next, `<span class="nl">${d.next ? esc(fmtDay(dayDate(d.next))) : ''} </span>›`)}
+    </div>
+    <div class="card"><div class="tiles">
+      ${tile('Used', `${s ? s.kwh.toFixed(1) : '–'}<small>kWh</small>`, s && !s.complete ? 'partial day' : '')}
+      ${tile('Cost', gbp(s && s.cost_p), s ? `incl. ${gbp(s.standing_p)} standing` : '')}
+      ${tile('Avg price paid', priceVal(s && s.avg_price), v ? `${v.html} · ${vsUsual(v, d.typical_paid)}` : 'weighted by use')}
+    </div></div>
+    <div class="card"><div class="chart-head"><span>kWh per half hour, coloured by price · tap a bar</span><span class="readout" id="day-readout"></span></div>
+    <div class="chart big-chart" id="day-chart"></div>
+    <div class="legend">${['plunge', 'cheap', 'normal', 'expensive'].map((b) => `<span><span class="dot ${b}"></span>${BAND_LABEL[b]}</span>`).join('')}</div></div>
+    <button class="more" id="back-usage">‹ All days</button>`;
+  $('back-usage').addEventListener('click', () => { location.hash = '#/energy/usage'; });
+  body.querySelectorAll('.daynav [data-day]').forEach((b) => b.addEventListener('click', () => { location.hash = `#/energy/usage/${b.dataset.day}`; }));
+  const draw = (sel) => barChart($('day-chart'), d.slots, {
+    value: (x) => x.kwh,
+    color: (x) => bandColor(band(x.price)),
+    selected: sel,
+    onSelect: (i) => {
+      const x = d.slots[i];
+      $('day-readout').textContent = `${fmtTime(x.start)} · ${x.kwh.toFixed(2)} kWh · ${p1(x.price)}p · ${x.cost_p == null ? '–' : `${x.cost_p.toFixed(1)}p`}`;
+      draw(i);
+    },
+    xLabel: (x) => { const t = fmtTime(x.start); return t.endsWith(':00') && +t.slice(0, 2) % 3 === 0 ? t.slice(0, 2) : null; },
+  });
+  draw(null);
+}
+
 function renderRequestRows(items) {
   return `<div class="rows">${items.map((it, i) => `<button class="row" data-item="${i}">
     ${poster(it.title, it.poster)}
