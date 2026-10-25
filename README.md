@@ -143,6 +143,21 @@ with under 1 GB of RAM the script also turns on compressed swap in RAM (zram,
 instead of swapping to the SD card), starts Chromium in low-memory mode, and
 restarts the browser every night at 04:00. Check headroom with `free -m`.
 
+### 4. Phones
+
+Open `http://<nas-ip>:8085` on the phone and add it to the home screen. It then
+opens full screen with its own icon, like an app.
+
+- **iPhone (Safari):** Share → Add to Home Screen. Works over plain http.
+- **Android (Chrome):** ⋮ → Add to home screen / Install app. Over plain http,
+  Chrome only makes a shortcut that opens in a browser tab. For a real app
+  window it needs https, for example through a reverse proxy with a certificate,
+  or `tailscale serve`.
+
+Over https, a service worker also keeps the page itself for offline starts (never
+the data: prices, timers and the to-do list always come live from the server).
+The kiosk is unaffected: it uses plain http, which never gets the service worker.
+
 ## Configuration (`.env`)
 
 | Variable | |

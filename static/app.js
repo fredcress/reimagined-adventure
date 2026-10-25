@@ -1041,6 +1041,10 @@ window.addEventListener('resize', () => {
   route().view === 'home' ? renderHome() : renderDetail(route(), true);
 });
 
+// Installed on a phone: a service worker keeps the app shell for offline starts.
+// Browsers only allow one over https (or localhost), so the kiosk never gets one.
+if ('serviceWorker' in navigator && PHONE.matches) navigator.serviceWorker.register('/sw.js').catch(() => {});
+
 setInterval(tickClock, 1000);
 tickClock();
 showRoute();

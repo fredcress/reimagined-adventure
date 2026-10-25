@@ -55,6 +55,15 @@ def test_display_follows_alarm(client):
     client.delete(f"/api/timers/{t['id']}")
 
 
+def test_installable_on_phones(client):
+    r = client.get("/sw.js")
+    assert r.status_code == 200 and "javascript" in r.headers["content-type"]
+    icons = client.get("/static/manifest.json").json()["icons"]
+    for icon in icons:
+        assert client.get(icon["src"]).status_code == 200
+    assert any(i.get("purpose") == "maskable" for i in icons)
+
+
 def test_ntfy_payload():
     from app.notify import Ntfy
 

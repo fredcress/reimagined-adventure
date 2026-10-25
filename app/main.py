@@ -415,6 +415,12 @@ async def index():
     return FileResponse(STATIC / "index.html", headers={"Cache-Control": "no-cache"})
 
 
+@app.get("/sw.js")
+async def service_worker():
+    # Served from the root so it can control the whole app, not just /static.
+    return FileResponse(STATIC / "sw.js", media_type="text/javascript", headers={"Cache-Control": "no-cache"})
+
+
 @app.get("/healthz")
 async def healthz():
     return {"ok": True, "build": BUILD}
