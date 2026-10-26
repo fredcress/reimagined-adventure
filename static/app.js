@@ -566,7 +566,16 @@ const CHECK_ICON = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" 
 
 const WEEKDAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 const nth = (n) => n + ((n % 100 >= 11 && n % 100 <= 13) ? 'th' : ({ 1: 'st', 2: 'nd', 3: 'rd' }[n % 10] || 'th'));
-const repeatLabel = (r) => (r.every === 'day' ? 'Daily' : r.every === 'week' ? `Every ${WEEKDAYS[r.on]}` : `Monthly, ${nth(r.on)}`);
+const weekdayList = (on) => [].concat(on ?? []); // older items hold a single weekday
+function repeatLabel(r) {
+  if (r.every === 'day') return 'Daily';
+  if (r.every === 'month') return `Monthly, ${nth(r.on)}`;
+  const days = weekdayList(r.on);
+  if (days.length === 7) return 'Daily';
+  if (days.join() === '0,1,2,3,4') return 'Weekdays';
+  if (days.join() === '5,6') return 'Weekends';
+  return `Every ${days.map((d) => WEEKDAYS[d]).join(', ')}`;
+}
 
 function todoRow(it, withDelete) {
   const rep = it.repeat
@@ -668,7 +677,7 @@ function renderRepeatPicker() {
   const opt = (every, label) => `<button type="button" class="label-btn ${(r.every || '') === every ? 'on' : ''}" data-every="${every}">${label}</button>`;
   let more = '';
   if (r.every === 'week') {
-    more = `<div class="trow">${WEEKDAYS.map((d, i) => `<button type="button" class="label-btn ${r.on === i ? 'on' : ''}" data-on="${i}">${d}</button>`).join('')}</div>`;
+    more = `<div class="trow">${WEEKDAYS.map((d, i) => `<button type="button" class="label-btn ${r.on.includes(i) ? 'on' : ''}" data-day="${i}">${d}</button>`).join('')}<span class="note">tap one or more</span></div>`;
   } else if (r.every === 'month') {
     more = `<div class="trow"><button type="button" class="step" data-on="${r.on === 1 ? 31 : r.on - 1}">−</button>
       <span class="tmonth">on the ${nth(r.on)}${r.on > 28 ? ' <span class="note">(or the last day)</span>' : ''}</span>
@@ -679,7 +688,13 @@ function renderRepeatPicker() {
   el.querySelectorAll('[data-every]').forEach((b) => b.addEventListener('click', () => {
     const today = dayDate(ymd(new Date(serverNow())));
     const every = b.dataset.every || null;
-    todoRepeat = { every, on: every === 'week' ? (today.getUTCDay() + 6) % 7 : every === 'month' ? today.getUTCDate() : undefined };
+    todoRepeat = { every, on: every === 'week' ? [(today.getUTCDay() + 6) % 7] : every === 'month' ? today.getUTCDate() : undefined };
+    renderRepeatPicker();
+  }));
+  el.querySelectorAll('[data-day]').forEach((b) => b.addEventListener('click', () => {
+    const d = Number(b.dataset.day), on = todoRepeat.on;
+    if (on.includes(d) && on.length === 1) return; // keep at least one day
+    todoRepeat = { ...todoRepeat, on: on.includes(d) ? on.filter((x) => x !== d) : [...on, d].sort() };
     renderRepeatPicker();
   }));
   el.querySelectorAll('[data-on]').forEach((b) => b.addEventListener('click', () => {

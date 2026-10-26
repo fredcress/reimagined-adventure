@@ -644,7 +644,7 @@ async def delete_timer(timer_id: str):
 
 class TodoIn(BaseModel):
     text: str = Field(min_length=1, max_length=200)
-    repeat: dict | None = None  # {"every": "day"|"week"|"month", "on": weekday 0=Mon | day of month}
+    repeat: dict | None = None  # {"every": "day"|"week"|"month", "on": [weekdays 0=Mon] | day of month}
 
 
 class TodoPatch(BaseModel):

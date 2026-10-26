@@ -5,7 +5,7 @@ every change, so it survives container restarts and image updates as long as
 DATA_DIR is on a volume. If the file can't be written the list still works,
 in memory only, and `error` says why.
 
-An item can repeat daily, weekly (on a weekday) or monthly (on a day of the
+An item can repeat daily, weekly (on one or more weekdays) or monthly (on a day of the
 month). A repeating item has a `due` date: ticking it moves `due` to the next
 occurrence, and once that day arrives it comes back unticked. Until then it
 is "waiting" and the screens only show it in the Repeating section. Repeating
@@ -29,7 +29,7 @@ EVERY = ("day", "week", "month")
 
 
 def check_repeat(repeat: dict | None) -> dict | None:
-    """Normalise {"every": "day"|"week"|"month", "on": weekday 0=Mon | day 1-31}."""
+    """Normalise {"every": "day"|"week"|"month", "on": [weekdays 0=Mon..6] | day 1-31}."""
     if not repeat:
         return None
     every, on = repeat.get("every"), repeat.get("on")
@@ -37,9 +37,19 @@ def check_repeat(repeat: dict | None) -> dict | None:
         raise ValueError("every must be day, week or month")
     if every == "day":
         return {"every": "day"}
-    if not isinstance(on, int) or not (0 <= on <= 6 if every == "week" else 1 <= on <= 31):
-        raise ValueError("bad 'on' for " + every)
+    if every == "week":
+        days = weekdays(on)
+        if not days or any(not isinstance(d, int) or not 0 <= d <= 6 for d in days):
+            raise ValueError("bad 'on' for week")
+        return {"every": "week", "on": sorted(set(days))}
+    if not isinstance(on, int) or not 1 <= on <= 31:
+        raise ValueError("bad 'on' for month")
     return {"every": every, "on": on}
+
+
+def weekdays(on) -> list:
+    """Weekly `on` is a list of weekdays; items saved before that hold a single int."""
+    return [on] if isinstance(on, int) else list(on or [])
 
 
 def next_due(repeat: dict, after: date, inclusive: bool) -> date:
@@ -49,7 +59,7 @@ def next_due(repeat: dict, after: date, inclusive: bool) -> date:
     if repeat["every"] == "day":
         return d
     if repeat["every"] == "week":
-        return d + timedelta(days=(repeat["on"] - d.weekday()) % 7)
+        return d + timedelta(days=min((w - d.weekday()) % 7 for w in weekdays(repeat["on"])))
     y, m = d.year, d.month
     while True:
         hit = date(y, m, min(repeat["on"], monthrange(y, m)[1]))

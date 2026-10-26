@@ -207,7 +207,8 @@ def seerr_request(media_type: str, tmdb_id: int) -> dict:
 
 TODOS = [  # (text, repeat)
     ("Descale kettle", {"every": "month", "on": 1}),
-    ("Bin day: recycling", {"every": "week", "on": 3}),
+    ("Bin day: recycling", {"every": "week", "on": [3]}),
+    ("Take vitamins", {"every": "week", "on": [0, 1, 2, 3, 4]}),
     ("Water the plants", {"every": "day"}),
     ("Book boiler service", None),
     ("Milk + eggs", None),

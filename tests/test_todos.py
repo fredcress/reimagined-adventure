@@ -46,7 +46,9 @@ def test_next_due():
     assert next_due({"every": "day"}, mon, inclusive=False) == date(2026, 10, 27)
     assert next_due({"every": "week", "on": 0}, mon, inclusive=True) == mon
     assert next_due({"every": "week", "on": 0}, mon, inclusive=False) == date(2026, 11, 2)
-    assert next_due({"every": "week", "on": 3}, mon, inclusive=True) == date(2026, 10, 29)
+    assert next_due({"every": "week", "on": 3}, mon, inclusive=True) == date(2026, 10, 29)  # saved before lists
+    assert next_due({"every": "week", "on": [0, 3]}, mon, inclusive=False) == date(2026, 10, 29)
+    assert next_due({"every": "week", "on": [0, 3]}, date(2026, 10, 30), inclusive=True) == date(2026, 11, 2)
     assert next_due({"every": "month", "on": 26}, mon, inclusive=False) == date(2026, 11, 26)
     assert next_due({"every": "month", "on": 31}, date(2026, 11, 1), inclusive=True) == date(2026, 11, 30)
     assert next_due({"every": "month", "on": 5}, date(2026, 12, 20), inclusive=True) == date(2027, 1, 5)
@@ -67,7 +69,7 @@ def test_repeating_item_comes_back(tmp_path):
 
 def test_repeating_untick_is_due_now(tmp_path):
     s = TodoStore(tmp_path / "t.json")
-    it = s.add("Bins", {"every": "week", "on": (datetime.now(timezone.utc).weekday() + 3) % 7})
+    it = s.add("Bins", {"every": "week", "on": [(datetime.now(timezone.utc).weekday() + 3) % 7]})
     assert s.list()[0]["waiting"] is True  # first shows on its weekday
     s.update(it["id"], done=True)
     s.update(it["id"], done=False)
@@ -78,6 +80,7 @@ def test_bad_repeat_rejected(tmp_path):
     import pytest
 
     s = TodoStore(tmp_path / "t.json")
-    for bad in ({"every": "hour"}, {"every": "week", "on": 7}, {"every": "month", "on": 0}, {"every": "week"}):
+    for bad in ({"every": "hour"}, {"every": "week", "on": [7]}, {"every": "week", "on": []}, {"every": "month", "on": 0}, {"every": "week"}):
         with pytest.raises(ValueError):
             s.add("x", bad)
+    assert s.add("x", {"every": "week", "on": [4, 0, 4]})["repeat"]["on"] == [0, 4]
