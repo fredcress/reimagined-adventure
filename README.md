@@ -21,7 +21,7 @@ one script.
 **Home**: current/next Agile price, the cheapest 1h and 3h windows,
 **appliance advice** ("Dishwasher eco in 6h": the delay to set for the
 cheapest run), a price chart to the end of published prices, yesterday's usage and cost,
-and the **shared to-do list** (tick items off with a tap; add from any phone or the screen).
+and the **shared to-do list** (tick items off with a tap; add from any phone or the screen; items can repeat daily, weekly on a chosen day or monthly on a date, and come back unticked when due).
 The top bar has Timer, Weather, Requests (Seerr, with the pending count) and NAS chips.
 
 Tap a panel to drill in:

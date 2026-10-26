@@ -106,6 +106,9 @@ def test_todo_api_round_trip(client):
     items = client.patch(f"/api/todos/{bread['id']}", json={"done": True}).json()["items"]
     assert next(i for i in items if i["id"] == bread["id"])["done"] is True
     assert client.post("/api/todos", json={"text": "   "}).status_code == 422
+    assert client.post("/api/todos", json={"text": "x", "repeat": {"every": "hour"}}).status_code == 422
+    items = client.post("/api/todos", json={"text": "Bins", "repeat": {"every": "week", "on": 3}}).json()["items"]
+    assert next(i for i in items if i["text"] == "Bins")["repeat"] == {"every": "week", "on": 3}
     assert client.patch("/api/todos/nope", json={"done": True}).status_code == 404
     client.delete(f"/api/todos/{bread['id']}")
     assert all(i["id"] != bread["id"] for i in client.get("/api/state").json()["todos"]["items"])

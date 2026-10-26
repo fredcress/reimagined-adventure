@@ -485,6 +485,11 @@ table.days tr.click:active td { background: var(--surface-2); }
 .tform { display: flex; gap: 8px; }
 .tform .searchbox { flex: 1; }
 .tform .big-btn { height: 52px; }
+.trep { display: inline-block; width: 100%; margin-top: 2px; font-size: 13px; color: var(--text-2); } /* inline-block: escapes the done line-through */
+.trepeat { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; }
+.trow { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.trow .note { margin-right: 4px; }
+.tmonth { min-width: 150px; text-align: center; font-size: 17px; font-weight: 600; }
 .tchip .badge { background: var(--normal); color: #000; border-radius: 999px; padding: 0 7px; font-size: 12px; line-height: 20px; }
 
 /* detail views: Back + title + four chips need the room the date used */

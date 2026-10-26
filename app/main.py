@@ -38,10 +38,10 @@ TZ = ZoneInfo(S.tz)
 STATIC = Path(__file__).parent.parent / "static"
 HISTORY_DAYS = 31  # usage/rates history kept for the energy detail view
 # Demo mode keeps its to-do list in memory so it never touches real data.
-todos = TodoStore(None if S.demo else Path(S.data_dir) / "todos.json")
+todos = TodoStore(None if S.demo else Path(S.data_dir) / "todos.json", TZ)
 if S.demo:
-    for _text in demo.TODOS:
-        todos.add(_text)
+    for _text, _repeat in demo.TODOS:
+        todos.add(_text, _repeat)
     todos.update(todos.items[-1]["id"], done=True)
 
 # Changes whenever the frontend files change, so the Pi reloads itself after a deploy.
@@ -644,6 +644,7 @@ async def delete_timer(timer_id: str):
 
 class TodoIn(BaseModel):
     text: str = Field(min_length=1, max_length=200)
+    repeat: dict | None = None  # {"every": "day"|"week"|"month", "on": weekday 0=Mon | day of month}
 
 
 class TodoPatch(BaseModel):
@@ -663,9 +664,9 @@ async def get_todos():
 @app.post("/api/todos")
 async def add_todo(body: TodoIn):
     try:
-        todos.add(body.text)
-    except ValueError:
-        raise HTTPException(422, "Empty item")
+        todos.add(body.text, body.repeat)
+    except ValueError as e:
+        raise HTTPException(422, "Empty item" if str(e) == "empty" else str(e))
     except OverflowError as e:
         raise HTTPException(409, str(e))
     return todo_list()

@@ -205,4 +205,11 @@ def seerr_request(media_type: str, tmdb_id: int) -> dict:
     return {"status": "pending"}
 
 
-TODOS = ["Book boiler service", "Milk + eggs", "Return parcel", "Bin day: recycling", "Descale kettle"]
+TODOS = [  # (text, repeat)
+    ("Descale kettle", {"every": "month", "on": 1}),
+    ("Bin day: recycling", {"every": "week", "on": 3}),
+    ("Water the plants", {"every": "day"}),
+    ("Book boiler service", None),
+    ("Milk + eggs", None),
+    ("Return parcel", None),
+]

@@ -559,21 +559,28 @@ function renderRequestRows(items) {
 
 let todoText = '';
 let todoKeyboard = false;
+let todoRepeat = { every: null }; // the repeat picked for the next item added
 const RECENT_TICK_MS = 60 * 60e3; // ticked items stay visible on home for an hour, to undo a stray tap
 
 const CHECK_ICON = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>';
 
+const WEEKDAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+const nth = (n) => n + ((n % 100 >= 11 && n % 100 <= 13) ? 'th' : ({ 1: 'st', 2: 'nd', 3: 'rd' }[n % 10] || 'th'));
+const repeatLabel = (r) => (r.every === 'day' ? 'Daily' : r.every === 'week' ? `Every ${WEEKDAYS[r.on]}` : `Monthly, ${nth(r.on)}`);
+
 function todoRow(it, withDelete) {
+  const rep = it.repeat
+    ? `<span class="trep">↻ ${esc(repeatLabel(it.repeat))}${it.waiting ? ` · next ${esc(fmtDay(dayDate(it.due)))}` : ''}</span>` : '';
   return `<li class="titem ${it.done ? 'done' : ''}">
     <button class="tcheck" data-tick="${esc(it.id)}" aria-label="${it.done ? 'Untick' : 'Tick'}">${it.done ? CHECK_ICON : ''}</button>
-    <span class="ttext">${esc(it.text)}</span>
+    <span class="ttext">${esc(it.text)}${rep}</span>
     ${withDelete ? `<button class="tdel" data-del="${esc(it.id)}" aria-label="Delete">✕</button>` : ''}</li>`;
 }
 
 function renderTodoHome() {
   const items = (state.todos && state.todos.items) || [];
   const now = Date.now();
-  const open = items.filter((i) => !i.done);
+  const open = items.filter((i) => !i.done && !i.waiting);
   const recent = items.filter((i) => i.done && now - Date.parse(i.done_at) < RECENT_TICK_MS);
   $('todo-home').innerHTML = open.length || recent.length
     ? open.concat(recent).map((i) => todoRow(i, false)).join('')
@@ -603,9 +610,13 @@ function renderTodo(openKeyboard, quiet) {
   const body = $('detail-body');
   if (openKeyboard) todoKeyboard = true;
   const items = (state.todos && state.todos.items) || [];
-  const open = items.filter((i) => !i.done), done = items.filter((i) => i.done);
+  const open = items.filter((i) => !i.done && !i.waiting);
+  const waiting = items.filter((i) => i.waiting).sort((a, b) => a.due.localeCompare(b.due));
+  const done = items.filter((i) => i.done && !i.repeat);
   const list = `<div class="card"><ul class="todo-list big">${open.length ? open.map((i) => todoRow(i, true)).join('')
       : '<li class="empty">Nothing to do.</li>'}</ul>
+    ${waiting.length ? `<div class="todo-done-head"><span class="note">Repeating · back on the day shown</span></div>
+      <ul class="todo-list big">${waiting.map((i) => todoRow(i, true)).join('')}</ul>` : ''}
     ${done.length ? `<div class="todo-done-head"><span class="note">Done · cleared automatically after a week</span>
       <button class="label-btn" id="clear-done">Clear done (${done.length})</button></div>
       <ul class="todo-list big">${done.map((i) => todoRow(i, true)).join('')}</ul>` : ''}</div>`;
@@ -619,12 +630,16 @@ function renderTodo(openKeyboard, quiet) {
         ${KEY_ROWS.map((row) => `<div class="krow">${[...row].map((k) => `<button class="key" data-k="${k}">${k}</button>`).join('')}${row === 'zxcvbnm' ? '<button class="key wide" data-k="back">⌫</button>' : ''}</div>`).join('')}
         <div class="krow"><button class="key wide" data-k="close">Done</button><button class="key space" data-k=" ">space</button><button class="key wide go" data-k="go">Add</button></div>
        </div>`;
-  body.innerHTML = `<div class="card">${box}</div><div id="todo-list-wrap">${list}</div>`;
+  body.innerHTML = `<div class="card">${box}<div class="trepeat" id="trepeat"></div></div><div id="todo-list-wrap">${list}</div>`;
+  renderRepeatPicker();
   const add = () => {
     const text = todoText.trim();
     if (!text) return;
+    const repeat = todoRepeat.every ? todoRepeat : null;
     todoText = '';
-    todoApi('POST', '/api/todos', { text });
+    todoRepeat = { every: null };
+    renderRepeatPicker();
+    todoApi('POST', '/api/todos', { text, repeat });
   };
   if (phone) {
     $('tform').addEventListener('submit', (e) => { e.preventDefault(); todoText = $('tinput').value; add(); $('tinput').value = ''; });
@@ -645,6 +660,32 @@ function renderTodo(openKeyboard, quiet) {
     });
   }
   bindTodoList();
+}
+
+// Once / Daily / Weekly (pick a day) / Monthly (pick a date), for the item being added.
+function renderRepeatPicker() {
+  const r = todoRepeat;
+  const opt = (every, label) => `<button type="button" class="label-btn ${(r.every || '') === every ? 'on' : ''}" data-every="${every}">${label}</button>`;
+  let more = '';
+  if (r.every === 'week') {
+    more = `<div class="trow">${WEEKDAYS.map((d, i) => `<button type="button" class="label-btn ${r.on === i ? 'on' : ''}" data-on="${i}">${d}</button>`).join('')}</div>`;
+  } else if (r.every === 'month') {
+    more = `<div class="trow"><button type="button" class="step" data-on="${r.on === 1 ? 31 : r.on - 1}">−</button>
+      <span class="tmonth">on the ${nth(r.on)}${r.on > 28 ? ' <span class="note">(or the last day)</span>' : ''}</span>
+      <button type="button" class="step" data-on="${r.on === 31 ? 1 : r.on + 1}">+</button></div>`;
+  }
+  const el = $('trepeat');
+  el.innerHTML = `<div class="trow"><span class="note">Repeat</span>${opt('', 'Once')}${opt('day', 'Daily')}${opt('week', 'Weekly')}${opt('month', 'Monthly')}</div>${more}`;
+  el.querySelectorAll('[data-every]').forEach((b) => b.addEventListener('click', () => {
+    const today = dayDate(ymd(new Date(serverNow())));
+    const every = b.dataset.every || null;
+    todoRepeat = { every, on: every === 'week' ? (today.getUTCDay() + 6) % 7 : every === 'month' ? today.getUTCDate() : undefined };
+    renderRepeatPicker();
+  }));
+  el.querySelectorAll('[data-on]').forEach((b) => b.addEventListener('click', () => {
+    todoRepeat = { ...todoRepeat, on: Number(b.dataset.on) };
+    renderRepeatPicker();
+  }));
 }
 
 function bindTodoList() {

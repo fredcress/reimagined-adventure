@@ -4,13 +4,20 @@ Kept in memory and saved to a small JSON file (DATA_DIR/todos.json) after
 every change, so it survives container restarts and image updates as long as
 DATA_DIR is on a volume. If the file can't be written the list still works,
 in memory only, and `error` says why.
+
+An item can repeat daily, weekly (on a weekday) or monthly (on a day of the
+month). A repeating item has a `due` date: ticking it moves `due` to the next
+occurrence, and once that day arrives it comes back unticked. Until then it
+is "waiting" and the screens only show it in the Repeating section. Repeating
+items are never cleared away with the ticked one-offs; only ✕ removes them.
 """
 
 import json
 import logging
 import os
 import uuid
-from datetime import datetime, timedelta, timezone
+from calendar import monthrange
+from datetime import date, datetime, timedelta, timezone, tzinfo
 from pathlib import Path
 
 log = logging.getLogger("kitchen.todos")
@@ -18,11 +25,43 @@ log = logging.getLogger("kitchen.todos")
 MAX_ITEMS = 300
 MAX_TEXT = 120
 KEEP_DONE = timedelta(days=7)  # ticked items disappear after this
+EVERY = ("day", "week", "month")
+
+
+def check_repeat(repeat: dict | None) -> dict | None:
+    """Normalise {"every": "day"|"week"|"month", "on": weekday 0=Mon | day 1-31}."""
+    if not repeat:
+        return None
+    every, on = repeat.get("every"), repeat.get("on")
+    if every not in EVERY:
+        raise ValueError("every must be day, week or month")
+    if every == "day":
+        return {"every": "day"}
+    if not isinstance(on, int) or not (0 <= on <= 6 if every == "week" else 1 <= on <= 31):
+        raise ValueError("bad 'on' for " + every)
+    return {"every": every, "on": on}
+
+
+def next_due(repeat: dict, after: date, inclusive: bool) -> date:
+    """First day on or after (inclusive) / strictly after `after` that the rule hits.
+    Monthly on the 31st falls on the last day of shorter months."""
+    d = after if inclusive else after + timedelta(days=1)
+    if repeat["every"] == "day":
+        return d
+    if repeat["every"] == "week":
+        return d + timedelta(days=(repeat["on"] - d.weekday()) % 7)
+    y, m = d.year, d.month
+    while True:
+        hit = date(y, m, min(repeat["on"], monthrange(y, m)[1]))
+        if hit >= d:
+            return hit
+        y, m = (y + 1, 1) if m == 12 else (y, m + 1)
 
 
 class TodoStore:
-    def __init__(self, path: Path | None):
+    def __init__(self, path: Path | None, tz: tzinfo = timezone.utc):
         self.path = path
+        self.tz = tz
         self.items: list[dict] = []
         self.error: str | None = None
         if path is None:
@@ -53,19 +92,30 @@ class TodoStore:
                 return it
         raise KeyError(item_id)
 
+    def _today(self, now: datetime | None = None) -> date:
+        return (now or datetime.now(timezone.utc)).astimezone(self.tz).date()
+
     def list(self, now: datetime | None = None) -> list[dict]:
-        """Open items newest first, then ticked items most recently ticked first."""
+        """Open items newest first, then ticked items most recently ticked first.
+        Each comes back with `waiting`: a repeating item not due again yet."""
         now = now or datetime.now(timezone.utc)
+        today = self._today(now).isoformat()
         cutoff = (now - KEEP_DONE).isoformat()
-        kept = [it for it in self.items if not it["done"] or (it.get("done_at") or "") > cutoff]
-        if len(kept) != len(self.items):
+        changed = False
+        for it in self.items:
+            if it.get("repeat") and it["done"] and it["due"] <= today:  # its day has come round again
+                it["done"], it["done_at"] = False, None
+                changed = True
+        kept = [it for it in self.items if not it["done"] or it.get("repeat") or (it.get("done_at") or "") > cutoff]
+        if changed or len(kept) != len(self.items):
             self.items = kept
             self._save()
         open_ = sorted((it for it in kept if not it["done"]), key=lambda it: it["created"], reverse=True)
         done = sorted((it for it in kept if it["done"]), key=lambda it: it.get("done_at") or "", reverse=True)
-        return open_ + done
+        return [{**it, "waiting": bool(it.get("repeat")) and it["due"] > today} for it in open_ + done]
 
-    def add(self, text: str) -> dict:
+    def add(self, text: str, repeat: dict | None = None) -> dict:
+        repeat = check_repeat(repeat)
         text = " ".join(text.split())[:MAX_TEXT]
         if not text:
             raise ValueError("empty")
@@ -78,6 +128,9 @@ class TodoStore:
             "created": datetime.now(timezone.utc).isoformat(),
             "done_at": None,
         }
+        if repeat:  # first shows on the next matching day, today included
+            item["repeat"] = repeat
+            item["due"] = next_due(repeat, self._today(), inclusive=True).isoformat()
         self.items.append(item)
         self._save()
         return item
@@ -87,6 +140,9 @@ class TodoStore:
         if done is not None and done != it["done"]:
             it["done"] = done
             it["done_at"] = datetime.now(timezone.utc).isoformat() if done else None
+            if it.get("repeat"):  # ticked: wait for the next one; unticked (a stray tap): due now
+                today = self._today()
+                it["due"] = next_due(it["repeat"], today, inclusive=False).isoformat() if done else today.isoformat()
         if text is not None:
             text = " ".join(text.split())[:MAX_TEXT]
             if text:
@@ -100,6 +156,6 @@ class TodoStore:
 
     def clear_done(self) -> int:
         before = len(self.items)
-        self.items = [it for it in self.items if not it["done"]]
+        self.items = [it for it in self.items if not it["done"] or it.get("repeat")]
         self._save()
         return before - len(self.items)
