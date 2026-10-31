@@ -37,6 +37,7 @@ S = config.load()
 TZ = ZoneInfo(S.tz)
 STATIC = Path(__file__).parent.parent / "static"
 HISTORY_DAYS = 31  # usage/rates history kept for the energy detail view
+LONG_HISTORY_DAYS = 5 * 365  # cap for the all-time average (bounds Octopus API calls)
 # Demo mode keeps its to-do list in memory so it never touches real data.
 todos = TodoStore(None if S.demo else Path(S.data_dir) / "todos.json", TZ)
 if S.demo:
@@ -73,6 +74,7 @@ nas_on = S.demo or S.truenas_enabled
 store = {
     "rates": Source(octopus_on),
     "usage": Source(octopus_on),
+    "history": Source(octopus_on),  # daily totals since the first agreement
     "seerr": Source(seerr_on),
     "weather": Source(weather_on),
     "nas": Source(nas_on),
@@ -158,6 +160,22 @@ async def fetch_usage():
     return await octopus.consumption(history_start(), datetime.now(timezone.utc))
 
 
+async def fetch_history() -> list[dict]:
+    """Daily kWh and cost since the first Octopus agreement, for long-run averages."""
+    if S.demo:
+        n = 400
+        return agile.daily_usage(demo.readings(TZ, n), demo.unit_rates(TZ, n), demo.standing(TZ), TZ)
+    meter = await octopus.discover()
+    if not meter.agreements:
+        return []
+    end = datetime.now(timezone.utc)
+    start = max(meter.agreements[0].start, end - timedelta(days=LONG_HISTORY_DAYS))
+    readings, unit, standing = await asyncio.gather(
+        octopus.consumption(start, end), octopus.unit_rates(start, end), octopus.standing_charges(start, end)
+    )
+    return agile.daily_usage(readings, unit, standing, TZ)
+
+
 async def fetch_seerr() -> dict:
     if S.demo:
         return {"counts": demo.seerr_counts(), "requests": demo.seerr_requests(take=5)["results"]}
@@ -229,6 +247,7 @@ async def lifespan(app: FastAPI):
     jobs = [
         ("rates", fetch_rates, 15 * 60),
         ("usage", fetch_usage, 60 * 60),
+        ("history", fetch_history, 6 * 60 * 60),
         ("seerr", fetch_seerr, 2 * 60),
         ("weather", fetch_weather, 15 * 60),
         ("nas", fetch_nas, 5 * 60),
@@ -472,7 +491,13 @@ async def energy_prices(day: date | None = None):
 @app.get("/api/energy/usage")
 async def energy_usage():
     """Daily kWh and cost for the history window."""
-    return {"days": usage_days(), "meta": store["usage"].meta()}
+    days = usage_days()
+    return {
+        "days": days,
+        "meta": store["usage"].meta(),
+        # Falls back to the 31-day window until the long history has loaded.
+        "averages": agile.period_averages(store["history"].data or days),
+    }
 
 
 @app.get("/api/energy/usage/{day}")

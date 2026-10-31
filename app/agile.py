@@ -6,6 +6,7 @@ wall-clock time when both sides share a tzinfo, which is wrong across clock
 changes. Prices are p/kWh including VAT; standing charges are p/day.
 """
 
+from bisect import bisect_right
 from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta, timezone
 from zoneinfo import ZoneInfo
@@ -58,10 +59,14 @@ def parse_readings(results: list[dict]) -> list[Reading]:
 
 
 def rate_at(rates: list[Rate], t: datetime) -> Rate | None:
-    # Later rows win when periods overlap (e.g. a tariff switch).
-    for rate in reversed(rates):
-        if rate.covers(t):
-            return rate
+    """The rate in force at t. `rates` must be sorted by start.
+
+    Later rows win when periods overlap (e.g. a tariff switch). Binary search,
+    so pricing a year of half-hours stays fast.
+    """
+    for j in range(bisect_right(rates, t, key=lambda r: r.start) - 1, -1, -1):
+        if rates[j].covers(t):
+            return rates[j]
     return None
 
 
@@ -164,6 +169,39 @@ def daily_usage(
                 and day["priced"] == day["slots"],
             }
         )
+    return out
+
+
+def period_averages(days: list[dict], spans: tuple[int, ...] = (7, 30, 90, 365)) -> list[dict]:
+    """Price paid per kWh, weighted by use, over recent spans and all history.
+
+    Only complete days count. Spans end on the latest complete day and are left
+    out until the history is that long; the all-time row has span None.
+    """
+    full = [d for d in days if d["complete"]]
+    if not full:
+        return []
+    first, last = date.fromisoformat(full[0]["date"]), date.fromisoformat(full[-1]["date"])
+
+    def summary(span: int | None, since: date) -> dict:
+        rows = [d for d in full if d["date"] >= since.isoformat()]
+        kwh = sum(d["kwh"] for d in rows)
+        energy = sum(d["energy_p"] for d in rows)
+        cost = sum(d["cost_p"] for d in rows)
+        return {
+            "span": span,
+            "since": since.isoformat(),
+            "days": len(rows),
+            "kwh": round(kwh, 1),
+            "energy_p": round(energy, 2),
+            "cost_p": round(cost, 2),
+            "avg_price": round(energy / kwh, 2) if kwh else None,
+            "all_in": round(cost / kwh, 2) if kwh else None,
+        }
+
+    out = [summary(n, last - timedelta(days=n - 1)) for n in spans if last - timedelta(days=n - 1) >= first]
+    if not out or out[-1]["days"] < len(full):
+        out.append(summary(None, first))
     return out
 
 

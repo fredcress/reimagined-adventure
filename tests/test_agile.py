@@ -189,3 +189,21 @@ def test_best_start_finish_in_timer():
         ("Washer 40 + dry", 5.25, 3.5, True),
         ("Dishwasher", 4.5, 0.85, False),
     ]
+
+
+def test_period_averages_weight_by_use():
+    from app.agile import period_averages
+
+    def day(d, kwh, energy, complete=True):
+        return {"date": d, "kwh": kwh, "energy_p": energy, "cost_p": energy + 50, "complete": complete}
+
+    days = [day(f"2026-01-{i:02d}", 10, 200) for i in range(1, 21)]
+    days[-1] = day("2026-01-20", 30, 300)  # a heavy, cheap day pulls the average down
+    days.append(day("2026-01-21", 2, 99, complete=False))  # partial: ignored
+    rows = period_averages(days)
+    assert [r["span"] for r in rows] == [7, None]  # history too short for 30+
+    week = rows[0]
+    assert week["days"] == 7 and week["kwh"] == 90
+    assert week["avg_price"] == round((6 * 200 + 300) / 90, 2)
+    assert week["all_in"] == round((6 * 250 + 350) / 90, 2)
+    assert rows[1]["since"] == "2026-01-01" and rows[1]["days"] == 20

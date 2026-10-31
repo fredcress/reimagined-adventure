@@ -493,6 +493,18 @@ function renderPrices(d, tab) {
   select(nowIdx >= 0 ? nowIdx : 0);
 }
 
+// Weighted average p/kWh (total pence / total kWh) over 7d, 30d, 90d, 12 months and all time.
+function avgCard(rows) {
+  if (!rows.length) return '';
+  const label = (r) => (r.span == null
+    ? `Since ${dtf({ day: 'numeric', month: 'short', year: 'numeric' }).format(dayDate(r.since))}`
+    : r.span === 365 ? 'Last 12 months' : `Last ${r.span} days`);
+  return `<div class="card"><div class="note days-note">Average price paid, weighted by use · complete days only</div>
+    <table class="days"><thead><tr><th>Period</th><th>kWh</th><th>p/kWh</th><th>Incl. standing</th><th>Cost</th></tr></thead><tbody>
+    ${rows.map((r) => `<tr><td>${label(r)}</td><td>${r.kwh.toFixed(0)}</td><td><b>${p1(r.avg_price)}</b></td><td>${p1(r.all_in)}</td><td>${gbp(r.cost_p)}</td></tr>`).join('')}
+    </tbody></table></div>`;
+}
+
 function renderUsage(d) {
   const body = $('detail-body');
   const days = d.days;
@@ -507,6 +519,7 @@ function renderUsage(d) {
       ${tile(`Last ${days.length} days`, `${sum(days, 'kwh').toFixed(0)}<small>kWh</small>`, gbp(sum(days, 'cost_p')))}
       ${tile('Avg per day', gbp(sum(days, 'cost_p') / days.length), `${(sum(days, 'kwh') / days.length).toFixed(1)} kWh`)}
     </div></div>
+    ${avgCard(d.averages || [])}
     <div class="card"><div class="chart-head"><span>Daily cost, £ · press and slide, let go to open</span><span class="readout" id="usage-readout"></span></div>
     <div class="chart" style="height:200px" id="usage-chart"></div></div>
     <div class="card"><div class="note days-note">Standing charge ${scNote} a day · Energy is what the kWh cost; Cost adds the standing charge</div>

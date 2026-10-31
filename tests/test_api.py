@@ -90,7 +90,11 @@ def test_usual_prices_and_day_navigation(client):
     s = client.get("/api/state").json()
     assert s["energy"]["typical_avg"] > 0
     assert client.get("/api/energy/prices").json()["typical_avg"] > 0
-    days = client.get("/api/energy/usage").json()["days"]
+    usage = client.get("/api/energy/usage").json()
+    days = usage["days"]
+    spans = [a["span"] for a in usage["averages"]]
+    assert spans[:4] == [7, 30, 90, 365] and spans[-1] is None
+    assert all(a["avg_price"] > 0 and a["all_in"] > a["avg_price"] for a in usage["averages"])
     mid = days[len(days) // 2]["date"]
     d = client.get(f"/api/energy/usage/{mid}").json()
     assert d["typical_paid"] > 0
