@@ -129,3 +129,22 @@ def test_wifi_payload_escapes():
     assert payload("Café, guest", None) == r"WIFI:T:nopass;S:Café\, guest;;"
     assert payload("Hid", "x", "WPA", hidden=True) == "WIFI:T:WPA;S:Hid;P:x;H:true;;"
     assert payload("a\\b", "x") == r"WIFI:T:WPA;S:a\\b;P:x;;"
+
+
+def test_wifi_qr_cat_in_the_middle():
+    import segno
+
+    from app.wifi import LOGO, logo_box, payload, png_size, qr_svg
+
+    text = payload("Kitchen-Guest", "correct-horse-battery")
+    svg = qr_svg(text)
+    assert b"<image" in svg and b"data:image/png;base64," in svg
+    assert b"<image" not in qr_svg(text, logo=None)
+    data = LOGO.read_bytes()
+    assert png_size(data)[1] > png_size(data)[0]  # cut-out cat is taller than wide
+    # Error level H recovers 30% of the code. The cut-out fills ~70% of its
+    # box, so a box under 25% of the code keeps the cat well under that.
+    for n in range(10, 200, 10):
+        width = segno.make("x" * n, error="h", boost_error=False).symbol_size(border=0)[0]
+        w, h = logo_box(width, data)
+        assert w * h / width**2 < 0.25
