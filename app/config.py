@@ -111,6 +111,11 @@ class Settings:
     timer_labels: tuple[str, ...]
     data_dir: str  # where the to-do list is saved; mount a volume here
 
+    wifi_ssid: str | None  # guest Wi-Fi shown as a QR code
+    wifi_password: str | None
+    wifi_security: str  # WPA (also WPA2/WPA3), WEP or nopass
+    wifi_hidden: bool
+
     @property
     def octopus_enabled(self) -> bool:
         return bool(self.octopus_api_key and self.octopus_account)
@@ -166,4 +171,8 @@ def load() -> Settings:
             x.strip() for x in _env("TIMER_LABELS", "Pasta,Rice,Eggs,Oven,Tea").split(",") if x.strip()
         ),
         data_dir=_env("DATA_DIR", "/data"),
+        wifi_ssid=_env("WIFI_SSID"),
+        wifi_password=_env("WIFI_PASSWORD"),
+        wifi_security=(_env("WIFI_SECURITY", "WPA") or "WPA").upper().replace("NOPASS", "nopass"),
+        wifi_hidden=_bool("WIFI_HIDDEN", False),
     )

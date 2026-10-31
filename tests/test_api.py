@@ -112,3 +112,10 @@ def test_todo_api_round_trip(client):
     assert client.patch("/api/todos/nope", json={"done": True}).status_code == 404
     client.delete(f"/api/todos/{bread['id']}")
     assert all(i["id"] != bread["id"] for i in client.get("/api/state").json()["todos"]["items"])
+
+
+def test_wifi_qr(client):
+    assert client.get("/api/state").json()["features"]["wifi"] is True  # demo network
+    assert client.get("/api/wifi").json()["ssid"] == "Kitchen-Guest"
+    r = client.get("/api/wifi/qr.svg")
+    assert r.status_code == 200 and r.headers["content-type"].startswith("image/svg+xml") and b"<svg" in r.content

@@ -236,6 +236,7 @@ table.days th { text-align: right; font-size: 12px; color: var(--muted); font-we
 table.days td { text-align: right; padding: 0 8px; height: 44px; border-top: 1px solid var(--line); }
 table.days th:first-child, table.days td:first-child { text-align: left; }
 table.days tr.click { cursor: pointer; }
+.days-note { padding: 0 8px 8px; }
 table.days tr.click:active td { background: var(--surface-2); }
 .note { color: var(--muted); font-size: 13px; }
 .legend { display: flex; gap: 14px; font-size: 12px; color: var(--text-2); flex-wrap: wrap; }
@@ -356,6 +357,12 @@ table.days tr.click:active td { background: var(--surface-2); }
 /* --- top bar chips: weather, NAS --- */
 .top-chips { display: flex; gap: 6px; }
 .tchip { display: inline-flex; align-items: center; gap: 6px; }
+.wifi-card { display: flex; align-items: center; justify-content: center; gap: 32px; flex-wrap: wrap; }
+.wifi-qr { width: min(56vh, 80vw); aspect-ratio: 1; border-radius: 12px; background: #fff; }
+.wifi-info { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+.wifi-info div { display: flex; flex-direction: column; gap: 2px; }
+.wifi-info b { font-size: 26px; overflow-wrap: anywhere; }
+.wifi-pw { font-family: ui-monospace, monospace; user-select: all; }
 .tchip.wx span { color: var(--text-2); font-weight: 500; font-size: 13px; }
 .led { display: inline-block; width: 10px; height: 10px; border-radius: 50%; background: var(--cheap); flex: none; }
 .led.warn, .tchip.nas.warn .led { background: var(--normal); }

@@ -179,6 +179,8 @@ The kiosk is unaffected: it uses plain http, which never gets the service worker
 | `TRUENAS_URL`, `TRUENAS_API_KEY`, `TRUENAS_VERIFY_SSL` | NAS chip. `https://` only. Needs TrueNAS 25.04+ (JSON-RPC API). |
 | `NTFY_URL`, `NTFY_TOPIC`, `NTFY_TOKEN` | Push notifications |
 | `NTFY_PRICES`, `NTFY_TIMERS`, `NTFY_NAS` | Which pushes to send (all on by default) |
+| `WIFI_SSID`, `WIFI_PASSWORD` | Guest Wi-Fi: a "Wi-Fi" chip in the top bar opens a QR code to join. Anyone on the dashboard can see it, so use the guest network. |
+| `WIFI_SECURITY`, `WIFI_HIDDEN` | `WPA` (default, covers WPA2/3), `WEP` or `nopass`; `1` if the name isn't broadcast |
 | `SCREEN_OFF_AT_NIGHT` | `1` = switch the screen off at night (needs kiosk-display on the Pi) |
 | `TZ` | Default `Europe/London` |
 | `DATA_DIR` | Where the to-do list is saved (default `/data`, a named volume in `compose.yaml`) |
@@ -210,7 +212,7 @@ API endpoints: `/api/state`, `/api/energy/prices?day=YYYY-MM-DD`,
 `/api/energy/usage`, `/api/energy/usage/YYYY-MM-DD`,
 `/api/seerr/requests?filter=all|pending|approved|processing|available&skip=&take=`,
 `/api/seerr/search?q=`, `/api/seerr/discover?kind=trending|movies|tv`,
-`POST /api/seerr/request`, `/api/todos` (GET/POST, `PATCH|DELETE /api/todos/{id}`, `POST /api/todos/clear-done`), `/api/display`, `POST /api/ntfy/test`,
+`POST /api/seerr/request`, `/api/todos` (GET/POST, `PATCH|DELETE /api/todos/{id}`, `POST /api/todos/clear-done`), `/api/wifi`, `/api/wifi/qr.svg`, `/api/display`, `POST /api/ntfy/test`,
 `GET/POST /api/timers`, `POST /api/timers/{id}/add`, `DELETE /api/timers/{id}`,
 `/healthz`.
 

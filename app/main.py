@@ -17,11 +17,11 @@ from zoneinfo import ZoneInfo
 
 import httpx
 from fastapi import FastAPI, HTTPException, Query
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from . import agile, config, demo
+from . import agile, config, demo, wifi
 from .agile import SLOT
 from .notify import Ntfy
 from .todos import TodoStore
@@ -448,6 +448,7 @@ async def state():
         "features": {
             "seerr_requests": seerr_on and S.seerr_allow_requests,
             "ntfy": ntfy.enabled,
+            "wifi": guest_wifi() is not None,
         },
     }
 
@@ -694,6 +695,32 @@ async def delete_todo(item_id: str):
 async def clear_done_todos():
     todos.clear_done()
     return todo_list()
+
+
+# --- guest Wi-Fi ---------------------------------------------------------------
+
+
+def guest_wifi() -> dict | None:
+    if S.wifi_ssid:
+        return {"ssid": S.wifi_ssid, "password": S.wifi_password, "security": S.wifi_security, "hidden": S.wifi_hidden}
+    return {"ssid": "Kitchen-Guest", "password": "demo-password", "security": "WPA", "hidden": False} if S.demo else None
+
+
+@app.get("/api/wifi")
+async def get_wifi():
+    """Name and password, fetched only when someone opens the Wi-Fi view."""
+    w = guest_wifi()
+    if not w:
+        raise HTTPException(404, "Wi-Fi not configured")
+    return {"ssid": w["ssid"], "password": w["password"]}
+
+
+@app.get("/api/wifi/qr.svg")
+async def wifi_qr():
+    w = guest_wifi()
+    if not w:
+        raise HTTPException(404, "Wi-Fi not configured")
+    return Response(wifi.qr_svg(wifi.payload(**w)), media_type="image/svg+xml", headers={"Cache-Control": "no-store"})
 
 
 # --- screen power + ntfy test ---------------------------------------------------

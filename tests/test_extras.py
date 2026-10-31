@@ -120,3 +120,12 @@ def test_seerr_errors_say_who_refused():
                 await s._get("/request")
 
     asyncio.run(run())
+
+
+def test_wifi_payload_escapes():
+    from app.wifi import payload
+
+    assert payload("Home", "pa;ss:wd") == r"WIFI:T:WPA;S:Home;P:pa\;ss\:wd;;"
+    assert payload("Café, guest", None) == r"WIFI:T:nopass;S:Café\, guest;;"
+    assert payload("Hid", "x", "WPA", hidden=True) == "WIFI:T:WPA;S:Hid;P:x;H:true;;"
+    assert payload("a\\b", "x") == r"WIFI:T:WPA;S:a\\b;P:x;;"

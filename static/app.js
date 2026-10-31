@@ -311,6 +311,9 @@ function renderTopChips() {
     const next = w.rain_at ? `rain ${fmtTime(w.rain_at)}` : w.drying && w.current.day ? 'drying day' : 'dry';
     html += `<button class="tchip wx" data-href="#/weather">${wxIcon(w.current.icon, 20)}<b>${Math.round(w.current.temp)}°</b><span>${next}</span></button>`;
   }
+  if (state && state.features && state.features.wifi) {
+    html += `<button class="tchip wifi" data-href="#/wifi">${WIFI_ICON}<b class="tlabel">Wi-Fi</b></button>`;
+  }
   const s = state && state.seerr;
   if (s && s.enabled) {
     const pending = (s.counts || {}).pending;
@@ -325,7 +328,19 @@ function renderTopChips() {
   $('top-chips').innerHTML = html;
 }
 
+const WIFI_ICON = '<svg class="wxi" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M2 8.5a15 15 0 0 1 20 0M5 12a10 10 0 0 1 14 0M8.5 15.5a5 5 0 0 1 7 0"/><circle cx="12" cy="19" r="1.2" fill="currentColor" stroke="none"/></svg>';
 const FILM_ICON = '<svg class="wxi" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M7 4v16M17 4v16M3 9h4M3 15h4M17 9h4M17 15h4"/></svg>';
+
+// Guest Wi-Fi: a QR code phones can scan to join, plus the details for typing them in.
+function renderWifi(w) {
+  $('detail-body').innerHTML = `<div class="card wifi-card">
+    <img class="wifi-qr" src="/api/wifi/qr.svg" alt="Wi-Fi QR code">
+    <div class="wifi-info">
+      <p class="note">Point your phone camera at the code to join</p>
+      <div><span class="note">Network</span><b>${esc(w.ssid)}</b></div>
+      ${w.password ? `<div><span class="note">Password</span><b class="wifi-pw">${esc(w.password)}</b></div>` : '<div><span class="note">No password</span></div>'}
+    </div></div>`;
+}
 
 // Small weather icons as inline SVG (the Pi's fonts have no emoji).
 function wxIcon(name, size = 24) {
@@ -353,6 +368,7 @@ const VIEWS = {
   weather: { title: 'Weather', tabs: [['forecast', 'Forecast']] },
   nas: { title: 'NAS', tabs: [['health', 'Health']] },
   timers: { title: 'Timers', tabs: [['timers', 'Timers']] },
+  wifi: { title: 'Guest Wi-Fi', tabs: [['qr', 'QR']] },
 };
 
 const route = () => {
@@ -405,6 +421,7 @@ function renderDetail(r = route(), quiet = false) {
   if (r.view === 'timers') return renderTimers();
   if (r.view === 'weather') return renderWeather();
   if (r.view === 'nas') return renderNas();
+  if (r.view === 'wifi') return getJSON('/api/wifi').then(guard(renderWifi)).catch(fail);
   if (r.view === 'seerr' && r.tab === 'search') return renderSeerrSearch(seq);
   if (r.view === 'seerr' && r.tab === 'trending') return discoverGrid('/api/seerr/discover?kind=trending', seq);
   if (r.view === 'seerr') return pagedGrid(`/api/seerr/requests?filter=${r.tab}`, 15, seq, renderRequestRows);
@@ -482,6 +499,9 @@ function renderUsage(d) {
   if (!days.length) { body.innerHTML = '<div class="card"><div class="empty">No readings yet - Octopus data usually arrives the next day.</div></div>'; return; }
   const sum = (arr, k) => arr.reduce((a, x) => a + (x[k] || 0), 0);
   const last7 = days.slice(-7);
+  // The standing charge is the same every day (until the tariff changes), so it's shown once above the table.
+  const sc = [...new Set(days.map((x) => x.standing_p))];
+  const scNote = sc.length === 1 ? `${p1(sc[0])}p` : `${p1(Math.min(...sc))}–${p1(Math.max(...sc))}p`;
   body.innerHTML = `<div class="card"><div class="tiles">
       ${tile('Last 7 days', `${sum(last7, 'kwh').toFixed(0)}<small>kWh</small>`, gbp(sum(last7, 'cost_p')))}
       ${tile(`Last ${days.length} days`, `${sum(days, 'kwh').toFixed(0)}<small>kWh</small>`, gbp(sum(days, 'cost_p')))}
@@ -489,9 +509,10 @@ function renderUsage(d) {
     </div></div>
     <div class="card"><div class="chart-head"><span>Daily cost, £ · press and slide, let go to open</span><span class="readout" id="usage-readout"></span></div>
     <div class="chart" style="height:200px" id="usage-chart"></div></div>
-    <div class="card"><table class="days"><thead><tr><th>Day</th><th>kWh</th><th>Avg p/kWh</th><th>Standing</th><th>Cost</th></tr></thead><tbody>
+    <div class="card"><div class="note days-note">Standing charge ${scNote} a day · Energy is what the kWh cost; Cost adds the standing charge</div>
+    <table class="days"><thead><tr><th>Day</th><th>kWh</th><th>Avg p/kWh</th><th>Energy</th><th>Cost</th></tr></thead><tbody>
     ${[...days].reverse().map((x) => `<tr class="click" data-day="${x.date}"><td>${fmtDay(dayDate(x.date))}${x.complete ? '' : ' <small class="note">partial</small>'}</td>
-      <td>${x.kwh.toFixed(2)}</td><td>${p1(x.avg_price)}</td><td>${gbp(x.standing_p)}</td><td>${gbp(x.cost_p)}</td></tr>`).join('')}
+      <td>${x.kwh.toFixed(2)}</td><td>${p1(x.avg_price)}</td><td>${gbp(x.energy_p)}</td><td>${gbp(x.cost_p)}</td></tr>`).join('')}
     </tbody></table></div>`;
   const open = (date) => { location.hash = `#/energy/usage/${date}`; };
   barChart($('usage-chart'), days, {
