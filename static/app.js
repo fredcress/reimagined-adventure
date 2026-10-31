@@ -1074,9 +1074,16 @@ function tickClock() {
   $('time').textContent = dtf({ hour: '2-digit', minute: '2-digit' }).format(now);
   $('date').textContent = dtf({ weekday: 'short', day: 'numeric', month: 'short' }).format(now);
   $('night-time').textContent = $('time').textContent;
-  const night = !PHONE.matches && state && state.night && Date.now() > nightWakeUntil && Date.now() - lastTouch > 30_000;
+  // While a timer is running, idle shows the timers page instead of home, and
+  // night mode waits, so the countdown stays on screen.
+  const timing = !!(state && state.timers && state.timers.length);
+  const night = !PHONE.matches && !timing && state && state.night && Date.now() > nightWakeUntil && Date.now() - lastTouch > 30_000;
   $('night').hidden = !night;
-  if (!PHONE.matches && Date.now() - lastTouch > IDLE_MS) { closeSheet(); if (route().view !== 'home') location.hash = ''; }
+  if (!PHONE.matches && Date.now() - lastTouch > IDLE_MS) {
+    closeSheet();
+    const idleView = timing ? 'timers' : 'home';
+    if (route().view !== idleView) location.hash = timing ? '#/timers' : '';
+  }
   tickTimers();
 }
 
