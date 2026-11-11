@@ -23,6 +23,7 @@ from pydantic import BaseModel, Field
 
 from . import agile, config, demo, wifi
 from .agile import SLOT
+from .history import RECENT_DAYS, HistoryCache
 from .notify import Ntfy
 from .todos import TodoStore
 from .sources import weather as wx
@@ -39,6 +40,7 @@ TZ = ZoneInfo(S.tz)
 STATIC = Path(__file__).parent.parent / "static"
 HISTORY_DAYS = 31  # usage/rates history kept for the energy detail view
 LONG_HISTORY_DAYS = 5 * 365  # cap for the all-time average (bounds Octopus API calls)
+history = HistoryCache(None if S.demo else Path(S.data_dir) / "history.json")
 # Demo mode keeps its to-do list in memory so it never touches real data.
 todos = TodoStore(None if S.demo else Path(S.data_dir) / "todos.json", TZ)
 if S.demo:
@@ -76,7 +78,8 @@ runs_on = S.demo or S.runs_enabled
 store = {
     "rates": Source(octopus_on),
     "usage": Source(octopus_on),
-    "history": Source(octopus_on),  # daily totals since the first agreement
+    # daily totals since the first agreement; the saved ones show until the first refresh
+    "history": Source(octopus_on, data=history.days or None),
     "seerr": Source(seerr_on),
     "weather": Source(weather_on),
     "nas": Source(nas_on),
@@ -173,11 +176,17 @@ async def fetch_history() -> list[dict]:
     if not meter.agreements:
         return []
     end = datetime.now(timezone.utc)
-    start = max(meter.agreements[0].start, end - timedelta(days=LONG_HISTORY_DAYS))
+    first = max(meter.agreements[0].start, end - timedelta(days=LONG_HISTORY_DAYS))
+    full = history.needs_full(meter.mpan, end)
+    # Usually only the last couple of weeks: older days are settled and already saved.
+    start = first if full else max(first, agile.local_midnight(datetime.now(TZ).date() - timedelta(days=RECENT_DAYS), TZ))
     readings, unit, standing = await asyncio.gather(
         octopus.consumption(start, end), octopus.unit_rates(start, end), octopus.standing_charges(start, end)
     )
-    return agile.daily_usage(readings, unit, standing, TZ)
+    days = agile.daily_usage(readings, unit, standing, TZ)
+    if full:
+        return history.replace(meter.mpan, days, end)
+    return history.merge(days, start.astimezone(TZ).date(), first.astimezone(TZ).date())
 
 
 async def fetch_seerr() -> dict:

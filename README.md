@@ -185,7 +185,7 @@ The kiosk is unaffected: it uses plain http, which never gets the service worker
 | `WIFI_SECURITY`, `WIFI_HIDDEN` | `WPA` (default, covers WPA2/3), `WEP` or `nopass`; `1` if the name isn't broadcast |
 | `SCREEN_OFF_AT_NIGHT` | `1` = switch the screen off at night (needs kiosk-display on the Pi) |
 | `TZ` | Default `Europe/London` |
-| `DATA_DIR` | Where the to-do list is saved (default `/data`, a named volume in `compose.yaml`) |
+| `DATA_DIR` | Where the to-do list and the long-run usage history are saved (default `/data`, a named volume in `compose.yaml`) |
 
 A service left unconfigured shows "Not configured". The rest still work.
 
@@ -198,6 +198,7 @@ is down, the screen keeps showing old data and a ⚠ chip appears in the top bar
 |---|---|
 | Agile unit rates + standing charge (31 days back to tomorrow) | 15 min |
 | Consumption (31 days) | 60 min |
+| Long-run usage history (for the 7/30/90-day and all-time averages) | 6 h: the last 14 days only, a full reload every 30 days; saved to `DATA_DIR/history.json` |
 | Seerr counts + latest | 2 min |
 | Weather | 15 min |
 | TrueNAS health | 5 min |
