@@ -165,6 +165,33 @@ def nas() -> dict:
     }
 
 
+def runs(tz: ZoneInfo) -> dict:
+    today = datetime.now(tz).date()
+    race = today + timedelta(days=116)
+    return {
+        "today": today.isoformat(),
+        "week": {"km": 23.4, "runs": 3, "time_s": 7810, "pace_s_per_km": 334, "km_vs_last_week": 2.1, "last_week_km": 30.2},
+        "month": {"km": 61.0, "runs": 8},
+        "year": {"km": 912.4, "runs": 121},
+        "fitness": {"fitness": 42, "fatigue": 50, "form": -8},
+        "readiness": {"level": "good", "label": "Recovered", "advice": "Demo: good to go for today's session.", "flags": []},
+        "plan": {
+            "race": "Demo half marathon", "race_date": race.isoformat(), "days_to_race": 116,
+            "phase": "build", "week_planned_km": 38.0, "week_done_km": 23.4,
+        },
+        "today_session": {
+            "title": "Threshold", "detail": "2 km easy, 3 x 8 min at 4:45/km with 2 min jog, 2 km easy",
+            "distance_km": 9.5, "type": "threshold", "status": "today",
+        },
+        "last_run": {
+            "id": 412, "name": "Headtorch weather", "date": (today - timedelta(days=1)).isoformat(),
+            "km": 8.2, "time_s": 2710, "pace_s_per_km": 330,
+        },
+        "coach_note": "Demo: a steady week so far. Keep the threshold reps controlled and save something for Sunday's long run.",
+        "url": None,
+    }
+
+
 _requested: set[tuple[str, int]] = set()
 
 _DISCOVER = [

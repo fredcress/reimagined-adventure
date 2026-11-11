@@ -148,3 +148,44 @@ def test_wifi_qr_cat_in_the_middle():
         width = segno.make("x" * n, error="h", boost_error=False).symbol_size(border=0)[0]
         w, h = logo_box(width, data)
         assert w * h / width**2 < 0.25
+
+
+def test_night_times_are_padded(monkeypatch):
+    from app import config
+
+    monkeypatch.setenv("NIGHT_START", "23:00")
+    monkeypatch.setenv("NIGHT_END", "6:30")  # compared as text: unpadded meant "always night"
+    assert config.load().night_end == "06:30"
+    monkeypatch.setenv("NIGHT_END", "half six")
+    import pytest
+
+    with pytest.raises(ValueError, match="NIGHT_END"):
+        config.load()
+
+
+def test_runs_widget_client():
+    import asyncio
+
+    import httpx
+    import pytest
+
+    from app.sources.runs import Runs
+
+    def handler(request: httpx.Request):
+        assert request.url.path == "/api/widget"
+        if request.headers.get("x-kiosk-token") != "secret":
+            return httpx.Response(401, json={"detail": "bad token"})
+        return httpx.Response(200, json={
+            "today": "2026-11-11", "week": {"km": 23.4, "runs": 3}, "plan": None,
+            "today_session": "oops", "coach_note": None, "surprise": {"x": 1},
+        })
+
+    async def get(token):
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as c:
+            return await Runs("http://nas:8420", token, c).widget()
+
+    w = asyncio.run(get("secret"))
+    assert w["week"]["km"] == 23.4 and w["plan"] is None and w["last_run"] is None
+    assert w["today_session"] is None and "surprise" not in w  # wrong shapes and unknown keys are dropped
+    with pytest.raises(RuntimeError, match="RUNS_KIOSK_TOKEN"):
+        asyncio.run(get("wrong"))

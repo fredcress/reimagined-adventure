@@ -140,7 +140,8 @@ def parse(body: dict, tz: ZoneInfo) -> dict:
 
 def view(fc: dict, now: datetime) -> dict:
     """Forecast -> JSON for the page: current, summary, next 24h, 7 days."""
-    today = fc["daily"][0] if fc["daily"] else None
+    # Not simply the first row: after failed refreshes across midnight that is yesterday.
+    today = next((d for d in fc["daily"] if d["date"] == now.date().isoformat()), None)
     summary = summarise(fc["hourly"], now, today["sunset"] if today else None)
     iso = lambda x: x.isoformat() if x else None  # noqa: E731
 
@@ -159,6 +160,8 @@ def view(fc: dict, now: datetime) -> dict:
         "drying": summary["drying"],
         "hourly": [{**with_desc(h), "time": iso(h["time"])} for h in hours],
         "daily": [
-            {**with_desc(d), "sunrise": iso(d["sunrise"]), "sunset": iso(d["sunset"])} for d in fc["daily"]
+            {**with_desc(d), "sunrise": iso(d["sunrise"]), "sunset": iso(d["sunset"])}
+            for d in fc["daily"]
+            if d["date"] >= now.date().isoformat()
         ],
     }

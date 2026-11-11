@@ -1,5 +1,6 @@
 """Seerr / Jellyseerr / Overseerr API client: request counts and request lists."""
 
+import asyncio
 from urllib.parse import quote
 
 import httpx
@@ -70,11 +71,14 @@ class Seerr:
         body = await self._get(
             "/request", {"take": take, "skip": skip, "sort": "added", "filter": filter}
         )
+        rows = body.get("results", [])
+        kind = lambda r: (r.get("media") or {}).get("mediaType") or r.get("type") or "movie"  # noqa: E731
+        # Titles come from one lookup per item (cached); do a page of them at once.
+        infos = await asyncio.gather(*(self._media(kind(r), (r.get("media") or {}).get("tmdbId")) for r in rows))
         out = []
-        for r in body.get("results", []):
+        for r, info in zip(rows, infos):
             media = r.get("media") or {}
-            media_type = media.get("mediaType") or r.get("type") or "movie"
-            info = await self._media(media_type, media.get("tmdbId"))
+            media_type = kind(r)
             status = REQUEST_STATUS.get(r.get("status"), "unknown")
             # Once approved, the media status says how far along it is.
             if status == "approved":

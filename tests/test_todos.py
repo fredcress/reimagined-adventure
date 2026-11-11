@@ -84,3 +84,12 @@ def test_bad_repeat_rejected(tmp_path):
         with pytest.raises(ValueError):
             s.add("x", bad)
     assert s.add("x", {"every": "week", "on": [4, 0, 4]})["repeat"]["on"] == [0, 4]
+
+
+def test_unreadable_file_is_kept_aside(tmp_path):
+    path = tmp_path / "todos.json"
+    path.write_text('{"items": [{"id": "a", "text": "Milk"')  # cut off mid-write
+    s = TodoStore(path)
+    assert s.items == [] and "couldn't read" in s.error
+    s.add("Eggs")  # saves a fresh todos.json...
+    assert "Milk" in path.with_suffix(".unreadable").read_text()  # ...without losing the old one

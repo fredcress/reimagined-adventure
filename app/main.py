@@ -1,4 +1,4 @@
-"""Kitchen monitor: polls Octopus / Seerr / weather / TrueNAS and serves the kiosk page.
+"""Kitchen monitor: polls Octopus / Seerr / weather / TrueNAS / the runs app and serves the kiosk page.
 
 The Pi only renders what this serves. Overview data is polled in the
 background and cached; detail views (tapping a panel) fetch on demand.
@@ -27,6 +27,7 @@ from .notify import Ntfy
 from .todos import TodoStore
 from .sources import weather as wx
 from .sources.octopus import Octopus
+from .sources.runs import Runs
 from .sources.seerr import FILTERS, Seerr
 from .sources.truenas import TrueNAS
 
@@ -70,6 +71,7 @@ octopus_on = S.demo or S.octopus_enabled
 seerr_on = S.demo or S.seerr_enabled
 weather_on = S.demo or S.weather_enabled
 nas_on = S.demo or S.truenas_enabled
+runs_on = S.demo or S.runs_enabled
 
 store = {
     "rates": Source(octopus_on),
@@ -78,6 +80,7 @@ store = {
     "seerr": Source(seerr_on),
     "weather": Source(weather_on),
     "nas": Source(nas_on),
+    "runs": Source(runs_on),
 }
 
 client: httpx.AsyncClient
@@ -85,6 +88,7 @@ octopus: Octopus
 seerr: Seerr
 weather: wx.Weather | None = None
 truenas: TrueNAS | None = None
+runs: Runs | None = None
 ntfy: Ntfy
 
 
@@ -204,16 +208,28 @@ async def fetch_nas() -> dict:
     return health
 
 
+def newly_finished(pushed: set[str], now: datetime) -> list["Timer"]:
+    """Timers that have finished and not been pushed yet; `pushed` is updated.
+
+    A finished timer that gets more time (+1 min on the alarm) is running again,
+    so it is forgotten here and pushes again when it next finishes.
+    """
+    pushed &= {t.id for t in timers.values() if t.ends <= now}
+    due = [t for t in timers.values() if t.ends <= now and t.id not in pushed]
+    pushed |= {t.id for t in due}
+    return due
+
+
+async def fetch_runs() -> dict:
+    return demo.runs(TZ) if S.demo and not S.runs_enabled else await runs.widget()
+
+
 async def watch_timers():
     """Push finished timers to phones (for when nobody's in the kitchen)."""
     pushed: set[str] = set()
     while True:
-        now = datetime.now(timezone.utc)
-        for t in list(timers.values()):
-            if t.ends <= now and t.id not in pushed:
-                pushed.add(t.id)
-                await ntfy.send(f"{t.label or 'Timer'} done", f"{t.label or 'Your'} timer has finished.", tags=["alarm_clock"], priority=4)
-        pushed &= set(timers)
+        for t in newly_finished(pushed, datetime.now(timezone.utc)):
+            await ntfy.send(f"{t.label or 'Timer'} done", f"{t.label or 'Your'} timer has finished.", tags=["alarm_clock"], priority=4)
         await asyncio.sleep(2)
 
 
@@ -232,12 +248,14 @@ async def poll(name: str, fetch: Callable[[], Awaitable[Any]], every: float):
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global client, octopus, seerr, weather, truenas, ntfy
+    global client, octopus, seerr, weather, truenas, runs, ntfy
     client = httpx.AsyncClient(timeout=15)
     octopus, seerr = Octopus(S, client), Seerr(S, client)
     ntfy = Ntfy(S.ntfy_url, S.ntfy_topic, S.ntfy_token, client)
     if S.weather_enabled:
         weather = wx.Weather(S.latitude, S.longitude, TZ, client)
+    if S.runs_enabled:
+        runs = Runs(S.runs_url, S.runs_kiosk_token, client)
     if S.truenas_enabled:
         try:
             truenas = TrueNAS(S.truenas_url, S.truenas_api_key, S.truenas_verify_ssl)
@@ -251,6 +269,7 @@ async def lifespan(app: FastAPI):
         ("seerr", fetch_seerr, 2 * 60),
         ("weather", fetch_weather, 15 * 60),
         ("nas", fetch_nas, 5 * 60),
+        ("runs", fetch_runs, 5 * 60),
     ]
     tasks = [asyncio.create_task(poll(n, f, t)) for n, f, t in jobs if store[n].enabled]
     if ntfy.enabled and S.ntfy_timers:
@@ -349,7 +368,7 @@ def energy_overview(now: datetime) -> dict:
 
     out.update(
         current=slot_json(upcoming[0]) if upcoming and upcoming[0].start == cur else None,
-        next=slot_json(upcoming[1]) if len(upcoming) > 1 else None,
+        next=next((slot_json(s) for s in upcoming if s.start == cur + SLOT), None),
         chart=[slot_json(s) for s in chart],
         today=stats(day_slots(unit, today)),
         typical_avg=typical_price(unit, today),
@@ -429,9 +448,14 @@ def pick_programs(items: list[dict], appliances: list) -> None:
 # --- routes ------------------------------------------------------------------
 
 
+# The script and stylesheet URLs carry the build, so a deploy can never leave a
+# browser running last week's cached app.js against this week's API.
+INDEX_HTML = (STATIC / "index.html").read_text().replace('.css"', f'.css?v={BUILD}"').replace('.js"', f'.js?v={BUILD}"')
+
+
 @app.get("/")
 async def index():
-    return FileResponse(STATIC / "index.html", headers={"Cache-Control": "no-cache"})
+    return Response(INDEX_HTML, media_type="text/html", headers={"Cache-Control": "no-cache"})
 
 
 @app.get("/sw.js")
@@ -464,6 +488,7 @@ async def state():
             **(wx.view(store["weather"].data, now) if store["weather"].data else {}),
         },
         "nas": {**store["nas"].meta(), **(store["nas"].data or {})},
+        "runs": {**store["runs"].meta(), **(store["runs"].data or {})},
         "features": {
             "seerr_requests": seerr_on and S.seerr_allow_requests,
             "ntfy": ntfy.enabled,
@@ -583,8 +608,6 @@ async def seerr_request(body: RequestIn):
         if S.demo:
             return demo.seerr_request(body.type, body.tmdb_id)
         result = await seerr.request(body.type, body.tmdb_id, S.seerr_request_user_id)
-    except httpx.HTTPStatusError as e:
-        raise HTTPException(502, f"Seerr: {e}")
     except httpx.HTTPError as e:
         raise HTTPException(502, f"Seerr: {e}")
     log.info("requested %s %s via kitchen screen", body.type, body.tmdb_id)
@@ -635,6 +658,7 @@ async def get_timers():
 
 @app.post("/api/timers")
 async def add_timer(body: TimerIn):
+    timer_list()  # drops long-finished timers, so they don't count towards the limit
     if len(timers) >= 12:
         raise HTTPException(400, "Too many timers")
     t = Timer(

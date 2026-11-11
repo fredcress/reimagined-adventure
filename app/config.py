@@ -24,6 +24,20 @@ def _url(name: str) -> str | None:
     return value.rstrip("/") if value else None
 
 
+def _clock(name: str) -> str | None:
+    """'6:30' or '06:30' -> '06:30'. Times are compared as text, so they must be padded."""
+    value = _env(name)
+    if not value:
+        return None
+    try:
+        h, m = (int(x) for x in value.split(":"))
+        if not (0 <= h < 24 and 0 <= m < 60):
+            raise ValueError
+    except ValueError:
+        raise ValueError(f"{name} must be a time like 23:00, not {value!r}") from None
+    return f"{h:02d}:{m:02d}"
+
+
 @dataclass(frozen=True)
 class Appliance:
     name: str
@@ -90,6 +104,9 @@ class Settings:
     truenas_api_key: str | None
     truenas_verify_ssl: bool
 
+    runs_url: str | None  # the runs app, for the running widget
+    runs_kiosk_token: str | None
+
     ntfy_url: str | None
     ntfy_topic: str | None
     ntfy_token: str | None
@@ -129,6 +146,10 @@ class Settings:
         return bool(self.truenas_url and self.truenas_api_key)
 
     @property
+    def runs_enabled(self) -> bool:
+        return bool(self.runs_url and self.runs_kiosk_token)
+
+    @property
     def seerr_enabled(self) -> bool:
         return bool(self.seerr_url and self.seerr_api_key)
 
@@ -152,6 +173,8 @@ def load() -> Settings:
         truenas_url=_url("TRUENAS_URL"),
         truenas_api_key=_env("TRUENAS_API_KEY"),
         truenas_verify_ssl=_bool("TRUENAS_VERIFY_SSL", False),
+        runs_url=_url("RUNS_URL"),
+        runs_kiosk_token=_env("RUNS_KIOSK_TOKEN"),
         ntfy_url=_url("NTFY_URL"),
         ntfy_topic=_env("NTFY_TOPIC"),
         ntfy_token=_env("NTFY_TOKEN"),
@@ -165,8 +188,8 @@ def load() -> Settings:
         usage_days=int(_float("USAGE_DAYS", 7)),
         appliances=_appliances(_env("APPLIANCES", "Dishwasher eco=4:30,Dishwasher quick=2:30")),
         appliance_step_hours=max(0.5, _float("APPLIANCE_DELAY_STEP", 1.0)),
-        night_start=_env("NIGHT_START"),
-        night_end=_env("NIGHT_END"),
+        night_start=_clock("NIGHT_START"),
+        night_end=_clock("NIGHT_END"),
         timer_labels=tuple(
             x.strip() for x in _env("TIMER_LABELS", "Pasta,Rice,Eggs,Oven,Tea").split(",") if x.strip()
         ),

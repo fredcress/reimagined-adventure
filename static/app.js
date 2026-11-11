@@ -8,6 +8,12 @@ const IDLE_MS = 90_000;
 const NIGHT_WAKE_MS = 120_000;
 
 const $ = (id) => document.getElementById(id);
+// Only touch the DOM when the markup changed. Replacing a button between
+// finger-down and finger-up swallows the tap (the refreshes run every 1-10 s),
+// and the Pi has less to repaint.
+function setHTML(el, html) {
+  if (el.shownHTML !== html) { el.innerHTML = html; el.shownHTML = html; }
+}
 // Phones get a scrolling one-column layout (style.css), the system keyboard, and
 // none of the kiosk behaviour (idle return to home, night clock).
 const PHONE = window.matchMedia('(max-width: 760px)');
@@ -203,7 +209,7 @@ const bandSub = (band, extra) => `<span class="dot ${band}"></span>${BAND_LABEL[
 function renderHome() {
   const e = state.energy;
   if (!e.enabled) {
-    $('energy-tiles').innerHTML = tile('Octopus', '–', 'Not configured');
+    setHTML($('energy-tiles'), tile('Octopus', '–', 'Not configured'));
     $('energy-chart').innerHTML = '';
     $('usage-strip').innerHTML = '';
   } else {
@@ -215,7 +221,7 @@ function renderHome() {
     for (const w of (e.windows || []).slice(0, 4 - t.length)) {
       t.push(tile(`Cheapest ${w.hours}h`, priceVal(w.price), `${fmtTime(w.start)}–${fmtTime(w.end)}`, w.band));
     }
-    $('energy-tiles').innerHTML = t.join('');
+    setHTML($('energy-tiles'), t.join(''));
 
     const chart = e.chart || [];
     const curStart = e.current && e.current.start;
@@ -235,7 +241,7 @@ function renderHome() {
       : '';
 
     const shown = (e.appliances || []).filter((a) => a.best !== false);
-    $('energy-advice').innerHTML = adviceRows(shown);
+    setHTML($('energy-advice'), adviceRows(shown));
     $('energy-advice').classList.toggle('compact', shown.length > 2); // two columns, shorter text
     renderUsageStrip(e.usage || []);
   }
@@ -293,13 +299,13 @@ function renderStatus() {
   if (state && state.demo) chips.push('<span class="chip">Demo</span>');
   if (offline) chips.push(`<span class="chip err">Server offline${lastOk ? ` · since ${fmtTime(lastOk)}` : ''}</span>`);
   if (state) {
-    const names = { energy: 'Octopus', seerr: 'Seerr', weather: 'Weather' };
+    const names = { energy: 'Octopus', seerr: 'Seerr', weather: 'Weather', runs: 'Runs' };
     for (const [k, label] of Object.entries(names)) {
       if (state[k].error) chips.push(`<span class="chip warn" title="${esc(state[k].error)}">${label} ⚠</span>`);
     }
     if (state.todos && state.todos.error) chips.push(`<span class="chip warn" title="${esc(state.todos.error)}">To-do not saved ⚠</span>`);
   }
-  $('status').innerHTML = chips.join('');
+  setHTML($('status'), chips.join(''));
   renderTopChips();
 }
 
@@ -319,16 +325,23 @@ function renderTopChips() {
     const pending = (s.counts || {}).pending;
     html += `<button class="tchip req" data-href="#/seerr">${FILM_ICON}<b class="tlabel">Requests</b>${pending ? `<span class="badge">${pending}</span>` : ''}</button>`;
   }
+  const ru = state && state.runs;
+  if (ru && ru.week) {
+    const ts = ru.today_session;
+    const next = ts ? (ts.status === 'done' ? `${ts.title} ✓` : ts.title) : ru.plan ? 'rest day' : '';
+    html += `<button class="tchip run" data-href="#/runs">${RUN_ICON}<b>${Math.round(ru.week.km)} km</b>${next ? `<span class="tlabel">${esc(next)}</span>` : ''}</button>`;
+  }
   const n = state && state.nas;
   if (n && (n.enabled || n.error)) {
     const st = n.error && !n.state ? 'err' : n.state || 'err';
     const label = st === 'ok' ? 'NAS' : st === 'warn' ? 'NAS !' : 'NAS ✕';
     html += `<button class="tchip nas ${st}" data-href="#/nas"><i class="led"></i>${label}</button>`;
   }
-  $('top-chips').innerHTML = html;
+  setHTML($('top-chips'), html);
 }
 
 const WIFI_ICON = '<svg class="wxi" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M2 8.5a15 15 0 0 1 20 0M5 12a10 10 0 0 1 14 0M8.5 15.5a5 5 0 0 1 7 0"/><circle cx="12" cy="19" r="1.2" fill="currentColor" stroke="none"/></svg>';
+const RUN_ICON = '<svg class="wxi" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="15.5" cy="4.5" r="1.8" fill="currentColor" stroke="none"/><path d="M6 11l3.5-3 4 1 2 3.5 3.5 1M11.5 9l-1.5 5 3.5 2.5.5 5M10 14l-2 3.5-4 .5"/></svg>';
 const FILM_ICON = '<svg class="wxi" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M7 4v16M17 4v16M3 9h4M3 15h4M17 9h4M17 15h4"/></svg>';
 
 // Guest Wi-Fi: a QR code phones can scan to join, plus the details for typing them in.
@@ -367,6 +380,7 @@ const VIEWS = {
   seerr: { title: 'Requests', tabs: [['pending', 'Pending'], ['processing', 'Processing'], ['available', 'Available'], ['all', 'All'], ['search', 'Search'], ['trending', 'Trending']] },
   weather: { title: 'Weather', tabs: [['forecast', 'Forecast']] },
   nas: { title: 'NAS', tabs: [['health', 'Health']] },
+  runs: { title: 'Running', tabs: [['week', 'This week']] },
   timers: { title: 'Timers', tabs: [['timers', 'Timers']] },
   wifi: { title: 'Guest Wi-Fi', tabs: [['qr', 'QR']] },
 };
@@ -413,7 +427,7 @@ function renderDetail(r = route(), quiet = false) {
     if (!state.energy.enabled) { body.innerHTML = '<div class="card"><div class="empty">Octopus not configured</div></div>'; return; }
     if (r.tab === 'usage' && r.arg) return getJSON(`/api/energy/usage/${r.arg}`).then(guard(renderUsageDay)).catch(fail);
     if (r.tab === 'usage') return getJSON('/api/energy/usage').then(guard(renderUsage)).catch(fail);
-    const day = new Date(state.now);
+    const day = dayDate(ymd(new Date(state.now))); // noon, so +24h is tomorrow even when the clocks change
     if (r.tab === 'tomorrow') day.setTime(day.getTime() + 86400e3);
     return getJSON(`/api/energy/prices?day=${ymd(day)}`).then(guard((d) => renderPrices(d, r.tab))).catch(fail);
   }
@@ -421,6 +435,7 @@ function renderDetail(r = route(), quiet = false) {
   if (r.view === 'timers') return renderTimers();
   if (r.view === 'weather') return renderWeather();
   if (r.view === 'nas') return renderNas();
+  if (r.view === 'runs') return renderRuns();
   if (r.view === 'wifi') return getJSON('/api/wifi').then(guard(renderWifi)).catch(fail);
   if (r.view === 'seerr' && r.tab === 'search') return renderSeerrSearch(seq);
   if (r.view === 'seerr' && r.tab === 'trending') return discoverGrid('/api/seerr/discover?kind=trending', seq);
@@ -625,9 +640,9 @@ function renderTodoHome() {
   const now = Date.now();
   const open = items.filter((i) => !i.done && !i.waiting);
   const recent = items.filter((i) => i.done && now - Date.parse(i.done_at) < RECENT_TICK_MS);
-  $('todo-home').innerHTML = open.length || recent.length
+  setHTML($('todo-home'), open.length || recent.length
     ? open.concat(recent).map((i) => todoRow(i, false)).join('')
-    : '<li class="empty">Nothing to do. Tap + Add, or add from your phone.</li>';
+    : '<li class="empty">Nothing to do. Tap + Add, or add from your phone.</li>');
 }
 
 // True while someone is typing, so the 10 s refresh doesn't wipe their text.
@@ -944,6 +959,70 @@ function renderNas() {
       <span class="t" style="white-space:normal">${esc(a.text)}</span></div>`).join('') || '<div class="empty">No active alerts</div>'}</div></div>`;
 }
 
+// --- running (from the runs app's widget endpoint) ------------------------------
+
+const km1 = (v) => (v == null ? '–' : (+v).toFixed(1));
+function fmtPace(s) {
+  if (!s) return '–';
+  s = Math.round(s);
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}/km`;
+}
+function fmtDur(s) {
+  if (s == null) return '–';
+  const m = Math.round(s / 60);
+  return m >= 60 ? `${Math.floor(m / 60)}h${String(m % 60).padStart(2, '0')}` : `${m} min`;
+}
+const SESSION_PILL = { today: ['pending', 'today'], done: ['available', 'done'], partial: ['partial', 'partly done'], skipped: ['declined', 'skipped'] };
+
+function renderRuns() {
+  const r = state.runs;
+  const body = $('detail-body');
+  if (!r || !r.week) {
+    body.innerHTML = `<div class="card"><div class="empty">${!r || !r.enabled ? 'Set RUNS_URL and RUNS_KIOSK_TOKEN in .env to show your running.'
+      : r.error ? `Can't reach the runs app: ${esc(r.error)}` : 'Waiting for the runs app…'}</div></div>`;
+    return;
+  }
+  const w = r.week, ts = r.today_session, rd = r.readiness, pl = r.plan, lr = r.last_run, f = r.fitness;
+  const pill = ts && SESSION_PILL[ts.status];
+  const today = ts
+    ? `<div class="run-title">${esc(ts.title)}${ts.distance_km ? ` <small>${km1(ts.distance_km)} km</small>` : ''}
+        ${pill ? `<span class="pill ${pill[0]}">${pill[1]}</span>` : ''}</div>
+       ${ts.detail ? `<div class="run-text">${esc(ts.detail)}</div>` : ''}`
+    : `<div class="run-title">${pl ? 'Rest day' : 'Nothing planned today'}</div>`;
+  const ready = rd ? `<div class="run-ready"><i class="led big ${{ good: 'ok', ok: 'warn', low: 'error' }[rd.level] || 'warn'}"></i>
+      <div><b>${esc(rd.label)}</b><div class="note">${esc([rd.advice, ...(rd.flags || [])].filter(Boolean).join(' · '))}</div></div></div>` : '';
+  const vs = w.km_vs_last_week;
+  const tiles = [
+    tile('This week', `${km1(w.km)}<small>km</small>`, `${w.runs} run${w.runs === 1 ? '' : 's'} · ${fmtDur(w.time_s)} · ${fmtPace(w.pace_s_per_km)}`, null, true),
+    tile('Vs last week', vs == null ? '–' : `${vs > 0 ? '+' : vs < 0 ? '−' : ''}${km1(Math.abs(vs))}<small>km</small>`,
+      w.last_week_km != null ? `same day · ${km1(w.last_week_km)} km in all` : ''),
+    r.month ? tile('This month', `${Math.round(r.month.km)}<small>km</small>`, `${r.month.runs} runs`) : '',
+    r.year ? tile('This year', `${Math.round(r.year.km)}<small>km</small>`, `${r.year.runs} runs`) : '',
+  ];
+  let plan = '';
+  if (pl) {
+    const pct = pl.week_planned_km ? Math.max(0, Math.min(100, (pl.week_done_km / pl.week_planned_km) * 100)) : 0;
+    plan = `<div class="card"><div class="run-race"><div><div class="run-title">${esc(pl.race)}</div>
+        <div class="note">${esc(fmtDay(dayDate(pl.race_date)))}${pl.phase ? ` · ${esc(pl.phase)} phase` : ''}</div></div>
+        <div class="run-days"><b>${pl.days_to_race}</b><span class="note">days to go</span></div></div>
+      ${pl.week_planned_km ? `<div><div class="bar"><i style="width:${pct}%"></i></div>
+        <span class="note">${km1(pl.week_done_km)} of ${km1(pl.week_planned_km)} km planned this week</span></div>` : ''}</div>`;
+  }
+  const last = lr ? `<div class="card"><h2>Last run</h2><div class="rows"><div class="row">
+      <span class="t"><span class="title">${esc(lr.name || 'Run')}</span><span class="meta">${esc(fmtDay(dayDate(lr.date)))}</span></span>
+      <span class="num"><b>${km1(lr.km)} km</b> <span class="note">${fmtDur(lr.time_s)} · ${fmtPace(lr.pace_s_per_km)}</span></span></div></div></div>` : '';
+  const fit = f ? `<div class="card"><div class="tiles">
+      ${tile('Fitness', Math.round(f.fitness), 'long-term load')}${tile('Fatigue', Math.round(f.fatigue), 'last week or so')}
+      ${tile('Form', `${f.form > 0 ? '+' : f.form < 0 ? '−' : ''}${Math.abs(Math.round(f.form))}`, f.form < -20 ? 'very tired' : f.form < -5 ? 'training hard' : f.form > 10 ? 'fresh' : 'balanced')}
+    </div></div>` : '';
+  const note = r.coach_note ? `<div class="card"><h2>Coach</h2><div class="run-text">${esc(r.coach_note)}</div></div>` : '';
+  const link = r.url && /^https?:\/\//.test(r.url) && PHONE.matches
+    ? `<a class="more" href="${esc(r.url)}" target="_blank" rel="noopener">Open the runs app ›</a>` : '';
+  body.innerHTML = `<div class="card run-today"><h2>Today</h2>${today}${ready}</div>
+    <div class="card"><div class="tiles">${tiles.join('')}</div></div>${plan}${last}${fit}${note}${link}
+    ${r.error ? `<div class="note">Last update failed (${esc(r.error)}); showing figures from ${fmtTime(r.updated)}.</div>` : ''}`;
+}
+
 // --- timers --------------------------------------------------------------------
 
 const TIMER_ICON = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" style="vertical-align:-3px"><circle cx="12" cy="13" r="8"/><path d="M12 9v4l2.5 2.5M9 2h6"/></svg>';
@@ -1008,9 +1087,18 @@ function renderTimers() {
 // Called every second: countdowns in the top bar and timers view, plus the alarm.
 function tickTimers() {
   const list = (state && state.timers) || [];
-  $('timer-chips').innerHTML = list.length
-    ? list.map((t) => { const left = timerLeft(t); return `<button class="tchip ${left <= 0 ? 'done' : ''}" data-href="#/timers">${esc(timerName(t))} ${fmtLeft(left)}</button>`; }).join('')
-    : `<button class="tchip" data-href="#/timers">${TIMER_ICON}<span class="tlabel"> Timer</span></button>`;
+  // The chips are only rebuilt when the set of timers changes; each second just
+  // updates the countdown text, so a tap on one always lands.
+  const chips = $('timer-chips');
+  setHTML(chips, list.length
+    ? list.map((t) => `<button class="tchip" data-href="#/timers" data-chip="${t.id}">${esc(timerName(t))} <span class="tleft"></span></button>`).join('')
+    : `<button class="tchip" data-href="#/timers">${TIMER_ICON}<span class="tlabel"> Timer</span></button>`);
+  for (const t of list) {
+    const chip = chips.querySelector(`[data-chip="${t.id}"]`);
+    const left = timerLeft(t);
+    chip.classList.toggle('done', left <= 0);
+    chip.querySelector('.tleft').textContent = fmtLeft(left);
+  }
 
   const box = $('timer-list');
   if (box) {
@@ -1093,12 +1181,14 @@ async function poll() {
     if (build && s.build !== build) { location.reload(); return; }
     build = s.build;
     tz = s.tz;
+    const first = !state;
     state = s;
     clockOffset = Date.parse(s.now) - Date.now();
     lastOk = new Date().toISOString();
     offline = false;
     const r = route();
     if (r.view === 'home') renderHome();
+    else if (first) renderDetail();
     else if (r.view === 'todo' && !todoEditing()) renderTodo(false, true);
     const c = s.energy.current;
     $('night-price').innerHTML = c ? `<span class="dot ${c.band}"></span>${p1(c.price)}p now · ${BAND_LABEL[c.band]}` : '';
@@ -1145,4 +1235,4 @@ if ('serviceWorker' in navigator && PHONE.matches) navigator.serviceWorker.regis
 setInterval(tickClock, 1000);
 tickClock();
 showRoute();
-poll().then(() => { if (route().view !== 'home') renderDetail(); });
+poll();

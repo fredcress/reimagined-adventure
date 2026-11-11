@@ -78,10 +78,18 @@ class TodoStore:
             return
         try:
             if path.exists():
-                self.items = json.loads(path.read_text())["items"]
+                items = json.loads(path.read_text())["items"]
+                if not isinstance(items, list):
+                    raise ValueError("'items' is not a list")
+                self.items = items
         except (OSError, ValueError, KeyError, TypeError) as e:
             self.error = f"couldn't read {path}: {e}"
             log.error(self.error)
+            # The next change saves over todos.json; set the unreadable one aside first.
+            try:
+                os.replace(path, path.with_suffix(".unreadable"))
+            except OSError:
+                pass
 
     def _save(self) -> None:
         if self.path is None:

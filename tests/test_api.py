@@ -123,3 +123,33 @@ def test_wifi_qr(client):
     assert client.get("/api/wifi").json()["ssid"] == "Kitchen-Guest"
     r = client.get("/api/wifi/qr.svg")
     assert r.status_code == 200 and r.headers["content-type"].startswith("image/svg+xml") and b"<svg" in r.content
+
+
+def test_page_urls_carry_the_build(client):
+    build = client.get("/healthz").json()["build"]
+    html = client.get("/").text
+    assert f"/static/app.js?v={build}" in html and f"/static/style.css?v={build}" in html
+    assert client.get(f"/static/app.js?v={build}").status_code == 200
+
+
+def test_extended_timer_pushes_again(client):
+    import app.main as m
+    from datetime import datetime, timedelta, timezone
+
+    t = client.post("/api/timers", json={"seconds": 60, "label": "Rice"}).json()[0]
+    pushed: set[str] = set()
+    now = datetime.now(timezone.utc)
+    assert m.newly_finished(pushed, now) == []
+    done = now + timedelta(seconds=61)
+    assert [x.id for x in m.newly_finished(pushed, done)] == [t["id"]]
+    assert m.newly_finished(pushed, done) == []  # only once
+    m.timers[t["id"]].ends = done + timedelta(seconds=60)  # +1 min on the alarm
+    assert m.newly_finished(pushed, done) == []
+    assert [x.id for x in m.newly_finished(pushed, done + timedelta(seconds=61))] == [t["id"]]
+    client.delete(f"/api/timers/{t['id']}")
+
+
+def test_runs_in_state(client):
+    r = client.get("/api/state").json()["runs"]
+    assert r["enabled"] and r["error"] is None
+    assert r["week"]["km"] > 0 and r["today_session"]["title"] and r["plan"]["days_to_race"] > 0

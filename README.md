@@ -22,7 +22,7 @@ one script.
 **appliance advice** ("Dishwasher eco in 6h": the delay to set for the
 cheapest run), a price chart to the end of published prices, yesterday's usage and cost,
 and the **shared to-do list** (tick items off with a tap; add from any phone or the screen; items can repeat daily, weekly on chosen days or monthly on a date, and come back unticked when due).
-The top bar has Timer, Weather, Requests (Seerr, with the pending count) and NAS chips.
+The top bar has Timer, Weather, Run (this week's km and today's session), Requests (Seerr, with the pending count) and NAS chips.
 
 Tap a panel to drill in:
 
@@ -33,6 +33,7 @@ Tap a panel to drill in:
 | Requests (top bar) | Pending / Processing / Available / All, **Search** (on-screen keyboard) and **Trending**. Tap a poster, then Request, then tap again to confirm. |
 | Weather (top bar) | Now, next rain, drying-day hint, next 12h, rain chance for 24h, 7 days |
 | NAS (top bar) | Pool health and usage, active TrueNAS alerts |
+| Run (top bar) | This week's km against last week, today's session, readiness, race countdown, last run, coach note |
 | Timers (top bar) | Presets 1-45 min, custom length, optional label (Pasta, Rice…), +1/+5 min, cancel |
 
 **Kitchen timers** live on the server, so they survive a page reload and show
@@ -177,6 +178,7 @@ The kiosk is unaffected: it uses plain http, which never gets the service worker
 | `SEERR_ALLOW_REQUESTS`, `SEERR_REQUEST_USER_ID` | Requests from the screen (default on, as admin) |
 | `LATITUDE`, `LONGITUDE` | Weather location |
 | `TRUENAS_URL`, `TRUENAS_API_KEY`, `TRUENAS_VERIFY_SSL` | NAS chip. `https://` only. Needs TrueNAS 25.04+ (JSON-RPC API). |
+| `RUNS_URL`, `RUNS_KIOSK_TOKEN` | Run chip: the runs app's address and its `KIOSK_TOKEN` (read from its `/api/widget`). |
 | `NTFY_URL`, `NTFY_TOPIC`, `NTFY_TOKEN` | Push notifications |
 | `NTFY_PRICES`, `NTFY_TIMERS`, `NTFY_NAS` | Which pushes to send (all on by default) |
 | `WIFI_SSID`, `WIFI_PASSWORD` | Guest Wi-Fi: a "Wi-Fi" chip in the top bar opens a QR code to join. Anyone on the dashboard can see it, so use the guest network. |
@@ -199,6 +201,7 @@ is down, the screen keeps showing old data and a ⚠ chip appears in the top bar
 | Seerr counts + latest | 2 min |
 | Weather | 15 min |
 | TrueNAS health | 5 min |
+| Runs widget | 5 min |
 
 Detail views (Seerr lists, paging) are fetched live when you tap.
 The to-do list is saved to `DATA_DIR/todos.json` after every change. In demo

@@ -3,6 +3,7 @@
 Uses wss:// only: TrueNAS revokes API keys that are sent over plain HTTP/ws.
 """
 
+import asyncio
 import itertools
 import json
 import ssl
@@ -25,6 +26,12 @@ class TrueNAS:
             self.ssl.verify_mode = ssl.CERT_NONE
 
     async def health(self) -> dict:
+        # A NAS that accepts the connection but never answers would otherwise
+        # block this poller for good, leaving the chip on stale "ok" data.
+        async with asyncio.timeout(30):
+            return await self._health()
+
+    async def _health(self) -> dict:
         ids = itertools.count(1)
         async with websockets.connect(self.ws_url, ssl=self.ssl, open_timeout=10, max_size=None) as ws:
 
